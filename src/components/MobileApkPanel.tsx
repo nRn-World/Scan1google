@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   Check,
   CheckCircle2,
   Copy,
   Download,
+  ExternalLink,
   GitBranch,
   Smartphone,
 } from 'lucide-react';
@@ -83,7 +84,18 @@ jobs:
 export function MobileApkPanel() {
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
   const [copiedYaml, setCopiedYaml] = useState(false);
+  const [repoSlug, setRepoSlug] = useState('nRn-World/DeliScan');
   const isNative = isNativeCapacitorApp();
+
+  const githubNewWorkflowUrl = useMemo(() => {
+    const cleanSlug = repoSlug.trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\/+$/, '');
+    const safeSlug = cleanSlug.includes('/') ? cleanSlug : 'nRn-World/DeliScan';
+    const params = new URLSearchParams({
+      filename: '.github/workflows/build-apk.yml',
+      value: WORKFLOW_YAML,
+    });
+    return `https://github.com/${safeSlug}/new/main?${params.toString()}`;
+  }, [repoSlug]);
 
   const handleCopyYaml = async () => {
     try {
@@ -91,7 +103,7 @@ export function MobileApkPanel() {
       setCopiedYaml(true);
       window.setTimeout(() => setCopiedYaml(false), 2500);
     } catch {
-      // Fallback handled by readonly textarea if clipboard fails
+      // Ignore clipboard failure
     }
   };
 
@@ -177,48 +189,66 @@ export function MobileApkPanel() {
               </div>
               <div>
                 <h2 className="font-display text-base font-semibold text-slate-900">
-                  2. Pusha till GitHub &amp; ladda ner APK
+                  2. Aktivera APK-bygge på GitHub (1 klick)
                 </h2>
                 <p className="text-xs text-slate-600">
-                  Android-projektet pushas direkt från AI Studio utan behörighetsfel.
+                  Öppnar GitHub färdigifylld — du behöver bara trycka Commit changes.
                 </p>
               </div>
             </div>
 
-            <ol className="mt-4 list-decimal space-y-2 pl-4 text-xs leading-relaxed text-slate-700">
+            <div className="mt-4">
+              <label htmlFor="github-repo-input" className="block text-xs font-medium text-slate-700">
+                GitHub-repository
+              </label>
+              <input
+                id="github-repo-input"
+                type="text"
+                value={repoSlug}
+                onChange={(e) => setRepoSlug(e.target.value)}
+                className="mt-1 w-full rounded-lg border border-slate-300 bg-white px-3 py-2 font-mono text-xs text-slate-900 focus:border-sky-600 focus:outline-none"
+              />
+            </div>
+
+            <ol className="mt-3 list-decimal space-y-1.5 pl-4 text-xs leading-relaxed text-slate-700">
               <li>
-                Pusha koden via <strong>GitHub Sync</strong> i AI Studio.
+                Pusha koden via <strong>GitHub sync</strong> i AI Studio.
               </li>
               <li>
-                Öppna ditt repo på GitHub → klicka <strong>Add file → Create new file</strong>,
-                döp filen till{' '}
-                <span className="font-mono font-medium text-slate-900">
-                  .github/workflows/build-apk.yml
-                </span>{' '}
-                och klistra in workflow-koden nedan (eller kopiera från filen{' '}
-                <span className="font-mono">APK_BUILD_WORKFLOW.yml</span>).
+                Klicka på <strong>Skapa byggfil på GitHub</strong> nedan och tryck{' '}
+                <strong>Commit changes</strong>.
               </li>
               <li>
-                När bygget under <strong>Actions</strong> är grönt laddar du ner{' '}
+                Vänta ca 2–3 min under fliken <strong>Actions</strong> — sedan finns{' '}
                 <span className="font-mono font-semibold text-slate-900">
                   PaketScan-debug.apk
                 </span>{' '}
-                från <strong>Releases</strong> till din Android-mobil.
+                under <strong>Releases</strong> och <strong>Artifacts</strong>.
               </li>
             </ol>
 
-            <div className="mt-4">
+            <div className="mt-4 flex flex-wrap items-center gap-2">
+              <a
+                href={githubNewWorkflowUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-slate-900 px-4 py-2 text-xs font-medium text-white hover:bg-slate-800"
+              >
+                <ExternalLink className="h-4 w-4" aria-hidden="true" />
+                <span>Skapa byggfil på GitHub</span>
+              </a>
+
               <button
                 type="button"
                 onClick={() => void handleCopyYaml()}
-                className="inline-flex min-h-[40px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-medium text-slate-800 hover:bg-slate-100"
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-xs font-medium text-slate-800 hover:bg-slate-100"
               >
                 {copiedYaml ? (
                   <Check className="h-4 w-4 text-emerald-600" aria-hidden="true" />
                 ) : (
                   <Copy className="h-4 w-4" aria-hidden="true" />
                 )}
-                <span>{copiedYaml ? 'Workflow-kod kopierad!' : 'Kopiera workflow-kod (.yml)'}</span>
+                <span>{copiedYaml ? 'Kopierad!' : 'Kopiera YAML'}</span>
               </button>
             </div>
           </div>
