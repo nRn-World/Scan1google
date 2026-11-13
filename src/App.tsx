@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
-import { CheckCircle2 } from 'lucide-react';
+import { CheckCircle2, Download, WifiOff } from 'lucide-react';
 import { HeaderBar, type ActiveTab } from './components/HeaderBar';
 import { VideoScannerPanel } from './components/VideoScannerPanel';
 import { SummaryStrip } from './components/SummaryStrip';
 import { InventoryTable } from './components/InventoryTable';
 import { NotepadExportPanel } from './components/NotepadExportPanel';
 import { SessionHistoryPanel } from './components/SessionHistoryPanel';
+import { MobileApkPanel } from './components/MobileApkPanel';
+import { useOnlineStatus, usePWAInstall } from './hooks/usePWAInstall';
 import {
   calculateInventorySummary,
   DEMO_RAW_PACKAGES,
@@ -62,6 +64,8 @@ export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('scanner');
   const [appendMode, setAppendMode] = useState(true);
   const [bannerNotice, setBannerNotice] = useState<string | null>(null);
+  const isOnline = useOnlineStatus();
+  const { isInstallable, isInstalled, install } = usePWAInstall();
 
   useEffect(() => {
     try {
@@ -235,27 +239,53 @@ export default function App() {
             />
           </div>
 
-          {bannerNotice && (
-            <div
-              role="status"
-              aria-live="polite"
-              className="flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs font-medium text-emerald-900"
-            >
-              <span className="inline-flex items-center gap-2">
-                <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
-                <span>{bannerNotice}</span>
-              </span>
+          <div className="flex flex-wrap items-center gap-2">
+            {isInstallable && !isInstalled && (
               <button
                 type="button"
-                onClick={() => setBannerNotice(null)}
-                aria-label="Stäng meddelande"
-                className="text-emerald-700 hover:text-emerald-950"
+                onClick={() => void install()}
+                className="inline-flex min-h-[36px] items-center gap-1.5 rounded-lg border border-sky-200 bg-sky-50 px-3 py-1.5 text-xs font-medium text-sky-800 hover:bg-sky-100"
               >
-                ×
+                <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>Installera på mobilen</span>
               </button>
-            </div>
-          )}
+            )}
+
+            {bannerNotice && (
+              <div
+                role="status"
+                aria-live="polite"
+                className="flex items-center justify-between gap-3 rounded-lg border border-emerald-200 bg-emerald-50 px-3.5 py-2 text-xs font-medium text-emerald-900"
+              >
+                <span className="inline-flex items-center gap-2">
+                  <CheckCircle2 className="h-4 w-4 shrink-0 text-emerald-600" aria-hidden="true" />
+                  <span>{bannerNotice}</span>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setBannerNotice(null)}
+                  aria-label="Stäng meddelande"
+                  className="text-emerald-700 hover:text-emerald-950"
+                >
+                  ×
+                </button>
+              </div>
+            )}
+          </div>
         </div>
+
+        {!isOnline && (
+          <div
+            role="status"
+            className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs font-medium text-amber-900"
+          >
+            <WifiOff className="h-4 w-4 shrink-0 text-amber-700" aria-hidden="true" />
+            <span>
+              Offlineläge — dina sparade listor fungerar lokalt, men internet krävs för ny
+              videoavläsning.
+            </span>
+          </div>
+        )}
 
         {/* Scanner Tab or Combined Overview */}
         {activeTab === 'scanner' && (
@@ -320,6 +350,8 @@ export default function App() {
             onDeleteSession={handleDeleteSession}
           />
         )}
+
+        {activeTab === 'apk' && <MobileApkPanel />}
       </main>
     </div>
   );

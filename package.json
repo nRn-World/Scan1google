@@ -9,9 +9,13 @@
     "build": "vite build",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "cap:sync": "npm run build && npx cap sync android"
   },
   "dependencies": {
+    "@capacitor/android": "^8.6.2",
+    "@capacitor/cli": "^8.6.2",
+    "@capacitor/core": "^8.6.2",
     "@google/genai": "^3.3.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/multer": "^2.3.0",
@@ -24,6 +28,7 @@
     "react": "^19.0.1",
     "react-dom": "^19.0.1",
     "vite": "^8.3.0",
+    "vite-plugin-pwa": "^2.0.0",
     "xlsx": "^0.18.5"
   },
   "devDependencies": {

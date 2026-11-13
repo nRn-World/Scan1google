@@ -10,6 +10,7 @@ import {
   Video,
   AlertCircle,
 } from 'lucide-react';
+import { getApiEndpoint } from '../utils/apiConfig';
 import type { RawDetectedPackage, InventoryItem } from '../utils/inventory';
 
 type InputMode = 'camera' | 'upload';
@@ -124,7 +125,7 @@ export function VideoScannerPanel({
         formData.append('hint', hint.trim());
       }
 
-      const response = await fetch('/api/scan-media', {
+      const response = await fetch(getApiEndpoint('/api/scan-media'), {
         method: 'POST',
         body: formData,
       });

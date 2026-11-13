@@ -1,6 +1,6 @@
 import { Download } from 'lucide-react';
 
-export type ActiveTab = 'scanner' | 'inventory' | 'notepad' | 'history';
+export type ActiveTab = 'scanner' | 'inventory' | 'notepad' | 'history' | 'apk';
 
 interface HeaderBarProps {
   activeTab: ActiveTab;
@@ -9,11 +9,12 @@ interface HeaderBarProps {
   onExportExcel: () => void;
 }
 
-const NAV_ITEMS: Array<{ id: ActiveTab; label: string }> = [
-  { id: 'scanner', label: 'Skanna' },
-  { id: 'inventory', label: 'Lista' },
-  { id: 'notepad', label: 'Anteckningar' },
-  { id: 'history', label: 'Historik' },
+const NAV_ITEMS: Array<{ id: ActiveTab; label: string; mobileLabel: string }> = [
+  { id: 'scanner', label: 'Skanna', mobileLabel: 'Skanna' },
+  { id: 'inventory', label: 'Lista', mobileLabel: 'Lista' },
+  { id: 'notepad', label: 'Anteckningar', mobileLabel: 'Export' },
+  { id: 'history', label: 'Historik', mobileLabel: 'Historik' },
+  { id: 'apk', label: 'App & APK', mobileLabel: 'APK' },
 ];
 
 export function HeaderBar({
@@ -83,7 +84,7 @@ export function HeaderBar({
       {/* Mobile navigation strip (compact, under 15% sticky height cap combined) */}
       <nav
         aria-label="Mobilmeny"
-        className="grid grid-cols-4 border-t border-slate-100 bg-white md:hidden"
+        className="grid grid-cols-5 border-t border-slate-100 bg-white md:hidden"
       >
         {NAV_ITEMS.map((item) => {
           const isActive = activeTab === item.id;
@@ -93,13 +94,13 @@ export function HeaderBar({
               type="button"
               onClick={() => onSelectTab(item.id)}
               aria-current={isActive ? 'page' : undefined}
-              className={`min-h-[44px] px-2 py-2 text-xs font-medium whitespace-nowrap truncate transition-colors ${
+              className={`min-h-[44px] px-1 py-2 text-xs font-medium whitespace-nowrap truncate transition-colors ${
                 isActive
                   ? 'border-b-2 border-sky-600 text-sky-700 bg-sky-50/40'
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              {item.label}
+              {item.mobileLabel}
               {item.id === 'inventory' && totalPackages > 0 ? ` (${totalPackages})` : ''}
             </button>
           );
