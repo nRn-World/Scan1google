@@ -1,0 +1,6 @@
+{
+  "name": "PaketScan — Video till Excel Inventering",
+  "description": "Filma streckkoder och delivery- eller removalpaket och omvandla automatiskt till en kategoriserad Excel-fil och anteckningslista.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
