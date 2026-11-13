@@ -55,8 +55,8 @@ interface BrandPattern {
 }
 
 const BRAND_PATTERNS: BrandPattern[] = [
-  // Enterprise / Tech / Nordic Customers (higher priority than carriers)
-  { canonical: 'Microsoft', regex: /\bM[i1l|]cros[o0]ft(?:\s+Corp(?:oration)?)?\b/i },
+  // Global Tech & Cloud Customers
+  { canonical: 'Microsoft', regex: /\bM[i1l|]cros[o0]ft(?:\s+(?:Corp(?:oration)?|Sverige|Sweden|AB))?\b/i },
   { canonical: 'Google', regex: /\bG[o0]{2}g[l1i]e(?:\s+Cloud)?\b/i },
   { canonical: 'Amazon', regex: /\bAmaz[o0]n(?:\s+Web\s+Services)?\b/i },
   { canonical: 'AWS', regex: /\bAWS\b/ },
@@ -75,16 +75,24 @@ const BRAND_PATTERNS: BrandPattern[] = [
   { canonical: 'AMD', regex: /\bAMD\b/ },
   { canonical: 'Samsung', regex: /\bSamsung\b/i },
   { canonical: 'Sony', regex: /\bS[o0]ny\b/i },
+  { canonical: 'Asus', regex: /\bASUS\b/i },
+  { canonical: 'Acer', regex: /\bAcer\b/i },
+  { canonical: 'Logitech', regex: /\bL[o0]gitech\b/i },
+
+  // Nordic & European Enterprise / Retail / Telecom / Datacenter Customers
   { canonical: 'Ericsson', regex: /\bEricss[o0]n\b/i },
   { canonical: 'Nokia', regex: /\bN[o0]k[i1]a\b/i },
-  { canonical: 'Telia', regex: /\bTe[l1]ia(?:\s+Company)?\b/i },
+  { canonical: 'Telia', regex: /\bTe[l1]ia(?:\s+Company|\s+Sverige)?\b/i },
   { canonical: 'Tele2', regex: /\bTe[l1]e\s*2\b/i },
   { canonical: 'Telenor', regex: /\bTe[l1]en[o0]r\b/i },
+  { canonical: 'Tre', regex: /\bHi3G\b/i },
   { canonical: 'ABB', regex: /\bABB\b/ },
-  { canonical: 'Volvo', regex: /\bV[o0]lv[o0]\b/i },
+  { canonical: 'Volvo', regex: /\bV[o0]lv[o0](?:\s+(?:Cars|Group|Lastvagnar|Trucks))?\b/i },
   { canonical: 'Scania', regex: /\bScan[i1]a\b/i },
   { canonical: 'Atlas Copco', regex: /\bAtlas\s+C[o0]pc[o0]\b/i },
+  { canonical: 'Epiroc', regex: /\bEpir[o0]c\b/i },
   { canonical: 'IKEA', regex: /\bIKEA\b/i },
+  { canonical: 'H&M', regex: /\bH\s*&\s*M\b/i },
   { canonical: 'Spotify', regex: /\bSp[o0]tify\b/i },
   { canonical: 'Klarna', regex: /\bK[l1]arna\b/i },
   { canonical: 'Vattenfall', regex: /\bVattenfa[l1]{2}\b/i },
@@ -95,6 +103,11 @@ const BRAND_PATTERNS: BrandPattern[] = [
   { canonical: 'Husqvarna', regex: /\bHusqvarna\b/i },
   { canonical: 'Securitas', regex: /\bSecur[i1]tas\b/i },
   { canonical: 'Saab', regex: /\bSAAB\b/i },
+  { canonical: 'Assa Abloy', regex: /\bAssa\s+Abl[o0]y\b/i },
+  { canonical: 'Alfa Laval', regex: /\bAlfa\s+Lava[l1]\b/i },
+  { canonical: 'Hexagon', regex: /\bHexag[o0]n\b/i },
+  { canonical: 'Essity', regex: /\bEssity\b/i },
+  { canonical: 'Axis', regex: /\bAxis\s+Communications\b/i },
   { canonical: 'Equinix', regex: /\bEqu[i1]n[i1]x\b/i },
   { canonical: 'Digital Realty', regex: /\bDigital\s+Realty\b/i },
   { canonical: 'Conapto', regex: /\bC[o0]napt[o0]\b/i },
@@ -104,9 +117,22 @@ const BRAND_PATTERNS: BrandPattern[] = [
   { canonical: 'Dustin', regex: /\bDust[i1]n\b/i },
   { canonical: 'Advania', regex: /\bAdvan[i1]a\b/i },
   { canonical: 'Inrego', regex: /\bInreg[o0]\b/i },
+  { canonical: 'Elgiganten', regex: /\bElgiganten\b/i },
+  { canonical: 'NetOnNet', regex: /\bNetOnNet\b/i },
+  { canonical: 'Inet', regex: /\bInet(?:\s+AB)?\b/i },
+  { canonical: 'Komplett', regex: /\bKomplett\b/i },
+  { canonical: 'Kjell & Company', regex: /\bKjell\s*&\s*Co(?:mpany)?\b/i },
+  { canonical: 'Apotea', regex: /\bApotea\b/i },
+  { canonical: 'Boozt', regex: /\bBoozt\b/i },
+  { canonical: 'Zalando', regex: /\bZalando\b/i },
+  { canonical: 'ICA', regex: /\bICA(?:\s+Sverige|\s+Gruppen)?\b/ },
+  { canonical: 'Coop', regex: /\bCoop(?:\s+Sverige)?\b/i },
+  { canonical: 'Clas Ohlson', regex: /\bClas\s+Ohls[o0]n\b/i },
+  { canonical: 'Jula', regex: /\bJula(?:\s+AB)?\b/i },
+  { canonical: 'Biltema', regex: /\bBiltema\b/i },
 
   // Logistics / Freight Carriers (used when no separate end-customer is printed)
-  { canonical: 'DHL', regex: /\bDHL(?:\s+Express|\s+Freight|\s+Parcel)?\b/i, isCarrier: true },
+  { canonical: 'DHL', regex: /\bDHL(?:\s+Express|\s+Freight|\s+Parcel|\s+Global)?\b/i, isCarrier: true },
   { canonical: 'PostNord', regex: /\bP[o0]st\s*N[o0]rd\b/i, isCarrier: true },
   { canonical: 'DB Schenker', regex: /\b(?:DB\s+)?Schenker\b/i, isCarrier: true },
   { canonical: 'UPS', regex: /\bUPS\b/, isCarrier: true },
@@ -117,6 +143,8 @@ const BRAND_PATTERNS: BrandPattern[] = [
   { canonical: 'GLS', regex: /\bGLS\b/, isCarrier: true },
   { canonical: 'Budbee', regex: /\bBudbee\b/i, isCarrier: true },
   { canonical: 'Instabox', regex: /\bInstab[o0]x\b/i, isCarrier: true },
+  { canonical: 'Airmee', regex: /\bAirmee\b/i, isCarrier: true },
+  { canonical: 'Early Bird', regex: /\bEarly\s*Bird\b/i, isCarrier: true },
 ];
 
 const STOPWORD_CUSTOMER_TOKENS = new Set([
@@ -130,23 +158,38 @@ const STOPWORD_CUSTOMER_TOKENS = new Set([
   'outbound',
   'package',
   'paket',
+  'parcel',
+  'express',
+  'priority',
+  'standard',
+  'economy',
   'kolli',
   'pallet',
   'pall',
   'weight',
   'vikt',
+  'kg',
   'date',
   'datum',
   'from',
   'från',
+  'avsändare',
+  'sender',
+  'mottagare',
+  'receiver',
+  'consignee',
   'sweden',
   'sverige',
   'stockholm',
   'göteborg',
   'malmö',
   'kista',
+  'västerås',
+  'uppsala',
   'warehouse',
   'lager',
+  'gate',
+  'port',
   'barcode',
   'streckkod',
   'reference',
@@ -154,10 +197,18 @@ const STOPWORD_CUSTOMER_TOKENS = new Set([
   'order',
   'shipment',
   'tracking',
+  'sscc',
+  'ean',
   'quantity',
   'antal',
+  'pcs',
+  'st',
+  'fragile',
+  'aktas',
   'endast',
   'bara',
+  'fraktsedel',
+  'waybill',
 ]);
 
 export function formatTimestampSec(seconds?: number): string {
@@ -170,15 +221,90 @@ export function formatTimestampSec(seconds?: number): string {
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
+/**
+ * Filters out OCR hallucinations caused by vertical 1D barcode bars (e.g. "111I1l|111")
+ * or random background punctuation noise.
+ */
+export function isBarcodeStripeOrNoiseText(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return true;
+  const compact = trimmed.replace(/\s+/g, '');
+  if (compact.length === 0) return true;
+
+  // Vertical barcode stripes get read by OCR as sequences of 1, I, l, |, !, i, :
+  const stripeChars = (compact.match(/[1Il|!i:\-_.,'"`\\/]/g) ?? []).length;
+  if (compact.length >= 4 && stripeChars / compact.length >= 0.72) {
+    // Allow genuine numeric strings ONLY if they are not almost all '1's
+    const onesCount = (compact.match(/1/g) ?? []).length;
+    if (onesCount / compact.length >= 0.65 || !/^\d+$/.test(compact)) {
+      return true;
+    }
+  }
+
+  // Reject identical repeated character runs like "00000000" or "AAAAAAA"
+  if (compact.length >= 5 && /^(.)\1+$/.test(compact)) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * Validates standard GS1 Modulo-10 check digit (used on EAN-8, UPC-A, EAN-13, ITF-14, SSCC-18).
+ */
+export function hasValidGs1Mod10Checksum(digitsOnly: string): boolean {
+  if (!/^\d+$/.test(digitsOnly)) return false;
+  // Strip leading GS1 AI (00) if 20-digit SSCC string
+  const code =
+    digitsOnly.length === 20 && digitsOnly.startsWith('00')
+      ? digitsOnly.slice(2)
+      : digitsOnly;
+
+  if (![8, 12, 13, 14, 18].includes(code.length)) return false;
+  if (/^(\d)\1+$/.test(code)) return false;
+
+  let sum = 0;
+  const checkDigit = Number(code[code.length - 1]);
+  const body = code.slice(0, -1);
+
+  for (let i = 0; i < body.length; i++) {
+    const d = Number(body[body.length - 1 - i]);
+    const weight = i % 2 === 0 ? 3 : 1;
+    sum += d * weight;
+  }
+
+  const expected = (10 - (sum % 10)) % 10;
+  return checkDigit === expected;
+}
+
+function looksLikeDateOrPhoneOrPostalCode(raw: string): boolean {
+  const trimmed = raw.trim();
+  // ISO or European dates: 2026-11-13, 13-11-2026, 20261113
+  if (/^(?:19|20)\d{2}[\-/.]?(?:0[1-9]|1[0-2])[\-/.]?(?:0[1-9]|[12]\d|3[01])$/.test(trimmed)) {
+    return true;
+  }
+  if (/^(?:0[1-9]|[12]\d|3[01])[\-/.](?:0[1-9]|1[0-2])[\-/.](?:19|20)\d{2}$/.test(trimmed)) {
+    return true;
+  }
+  // Swedish 5-digit postal code like "164 40" or "SE-16440"
+  if (/^(?:SE[\s\-]?)?\d{3}\s?\d{2}$/i.test(trimmed)) {
+    return true;
+  }
+  // Swedish phone numbers like +46701234567 or 070-123 45 67 or 08-1234567
+  if (/^(?:\+46|0046|07[02369]|08)[\s\-]?\d{5,9}$/.test(trimmed.replace(/\s+/g, ''))) {
+    return true;
+  }
+  return false;
+}
+
 export function cleanBarcodeValue(raw: string): string {
   if (!raw) return '';
-  // Remove ISO/IEC 15424 symbology identifiers such as ]C1, ]d2, ]Q1, ]E0 and control chars
   let cleaned = raw
     .replace(/^\][A-Za-z][0-9]/, '')
     .replace(/[\x00-\x1F\x7F]+/g, ' ')
     .trim();
 
-  // If GS1 HRI format like "(00) 373125519820123456" with only digits/spaces/parens, flatten digits
+  // Flatten GS1 HRI format like "(00) 373125519820123456"
   if (/^\(\d{2,4}\)[\d\s()]+$/.test(cleaned)) {
     cleaned = cleaned.replace(/[()\s]+/g, '');
   }
@@ -188,13 +314,17 @@ export function cleanBarcodeValue(raw: string): string {
 
 function isReferenceLikeCode(code: string): boolean {
   const compact = code.replace(/[\s\-_]+/g, '');
-  return /^(DEL|DLV|INL|REM|RMV|RET|UTL|ORD|SHP|RITM|INC|CHG)[A-Z0-9]{3,24}$/i.test(compact);
+  return /^(DEL|DLV|INL|REM|RMV|RET|UTL|RMA|ORD|SHP|RITM|INC|CHG|PO|SO)[A-Z0-9]{4,24}$/i.test(
+    compact
+  );
 }
 
-function normalizeDelRemPrefixAndTail(
-  rawPrefix: string,
-  rawTail: string
-): { normalized: string; impliedType: PackageType; repairedAmbiguous: boolean; prefixRepaired: boolean } {
+function normalizeDelRemPrefixAndTail(rawPrefix: string, rawTail: string): {
+  normalized: string;
+  impliedType: PackageType;
+  repairedAmbiguous: boolean;
+  prefixRepaired: boolean;
+} {
   const upperPrefix = rawPrefix.toUpperCase();
   let canonicalPrefix = rawPrefix;
   let impliedType: PackageType = 'Okänd';
@@ -217,7 +347,12 @@ function normalizeDelRemPrefixAndTail(
   } else if (upperPrefix === 'REM' || upperPrefix === 'REMOVAL') {
     canonicalPrefix = 'Rem';
     impliedType = 'Removal';
-  } else if (upperPrefix === 'RMV' || upperPrefix === 'RET' || upperPrefix === 'UTL') {
+  } else if (
+    upperPrefix === 'RMV' ||
+    upperPrefix === 'RET' ||
+    upperPrefix === 'UTL' ||
+    upperPrefix === 'RMA'
+  ) {
     canonicalPrefix = upperPrefix;
     impliedType = 'Removal';
   }
@@ -265,12 +400,22 @@ function cleanExplicitCustomerCandidate(raw: string): string | null {
     .trim();
 
   if (!trimmed || trimmed.length < 2 || trimmed.length > 42) return null;
+  if (isBarcodeStripeOrNoiseText(trimmed)) return null;
   if (/^\d+$/.test(trimmed)) return null;
-  if (/^(del|rem|dlv|rmv|inl|ret)\d/i.test(trimmed)) return null;
+  if (looksLikeDateOrPhoneOrPostalCode(trimmed)) return null;
+  if (/^(del|rem|dlv|rmv|inl|ret|rma)\d/i.test(trimmed)) return null;
+  // Reject street-address-like lines ("Storgatan 12", "Gate 4", "Box 102")
+  if (/\b(?:gatan|vägen|gränd|allén|torget|box|gate|port)\s+\d+/i.test(trimmed)) return null;
 
   const words = trimmed.split(' ').filter(Boolean);
   if (words.length === 0 || words.length > 5) return null;
   if (words.every((w) => STOPWORD_CUSTOMER_TOKENS.has(w.toLowerCase()))) return null;
+
+  // Require at least one vowel in alphabetic words > 3 chars so OCR consonant garbage ("Brtk") is rejected
+  const alphaOnly = trimmed.replace(/[^A-Za-zÅÄÖåäö]/g, '');
+  if (alphaOnly.length >= 4 && !/[aeiouyåäöAEIOUYÅÄÖ]/.test(alphaOnly)) {
+    return null;
+  }
 
   return normalizeCustomerName(trimmed);
 }
@@ -280,30 +425,51 @@ export function extractCustomerFromText(
   ocrLines?: OcrLineBox[],
   hint?: string
 ): string {
-  const lines =
+  const structuredLines: OcrLineBox[] =
     ocrLines && ocrLines.length > 0
-      ? ocrLines.map((l) => l.text.trim()).filter(Boolean)
+      ? ocrLines.filter((l) => (l.confidence ?? 80) >= 42 && !isBarcodeStripeOrNoiseText(l.text))
       : ocrText
           .split(/\r?\n/)
-          .map((l) => l.trim())
-          .filter(Boolean);
+          .map((t) => ({ text: t.trim(), confidence: 80 }))
+          .filter((l) => Boolean(l.text) && !isBarcodeStripeOrNoiseText(l.text));
 
-  // Tier 1: Explicit "Kund: ...", "Customer: ...", "Client: ...", "Mottagare: ...", "Ship To: ..."
-  const explicitFieldRegex =
-    /(?:^|\b)(?:Kund|Customer|Client|Mottagare|Beställare|Ship\s*To|Deliver\s*To|Consignee|Account|Företag|Uppdragsgivare)\s*[:#\-]\s*([A-Za-zÅÄÖåäö0-9&.\- ]{2,40})/i;
+  const lines = structuredLines.map((l) => l.text.trim()).filter(Boolean);
 
-  for (const line of lines) {
-    const match = line.match(explicitFieldRegex);
-    if (match?.[1]) {
-      // Check if known brand is inside the explicit field first
+  // Tier 1a: Explicit same-line field ("Kund: Microsoft", "Mottagare: Volvo AB", "Ship To: ABB")
+  const explicitSameLineRegex =
+    /(?:^|\b)(?:Kund|Customer|Client|Mottagare|Receiver|Beställare|Ship\s*To|Deliver\s*To|Consignee|Account|Företag|Uppdragsgivare)\s*[:#\-]\s*([A-Za-zÅÄÖåäö0-9&.\- ]{2,42})/i;
+
+  // Tier 1b: Header-only line ("MOTTAGARE:" / "SHIP TO" / "KUND") where customer name is on the NEXT line!
+  const headerOnlyRegex =
+    /^(?:Kund|Customer|Client|Mottagare|Receiver|Beställare|Ship\s*To|Deliver\s*To|Consignee|Leveransadress|Till|To)\s*[:#\-]?$/i;
+
+  for (let i = 0; i < structuredLines.length; i++) {
+    const line = structuredLines[i].text.trim();
+    const sameLineMatch = line.match(explicitSameLineRegex);
+    if (sameLineMatch?.[1]) {
       for (const brand of BRAND_PATTERNS) {
-        if (brand.regex.test(match[1])) {
+        if (brand.regex.test(sameLineMatch[1])) {
           return brand.canonical;
         }
       }
-      const cleaned = cleanExplicitCustomerCandidate(match[1]);
+      const cleaned = cleanExplicitCustomerCandidate(sameLineMatch[1]);
       if (cleaned && cleaned !== 'Okänd kund') {
         return cleaned;
+      }
+    }
+
+    if (headerOnlyRegex.test(line) && i + 1 < structuredLines.length) {
+      const nextLineObj = structuredLines[i + 1];
+      if ((nextLineObj.confidence ?? 80) >= 60) {
+        for (const brand of BRAND_PATTERNS) {
+          if (brand.regex.test(nextLineObj.text)) {
+            return brand.canonical;
+          }
+        }
+        const cleanedNext = cleanExplicitCustomerCandidate(nextLineObj.text);
+        if (cleanedNext && cleanedNext !== 'Okänd kund') {
+          return cleanedNext;
+        }
       }
     }
   }
@@ -317,11 +483,14 @@ export function extractCustomerFromText(
     }
   }
 
-  // Tier 3a: Company name with corporate legal suffix (e.g. "Nordic Datacenter AB", "Acme Corp")
+  // Tier 3: Validated Corporate Legal Suffix (e.g. "Nordic Datacenter AB", "Acme Corp") on confident OCR lines
   const legalSuffixRegex =
-    /\b([A-ZÅÄÖ][A-Za-zÅÄÖåäö0-9&\-]{1,20}(?:\s+[A-ZÅÄÖ][A-Za-zÅÄÖåäö0-9&\-]{1,20}){0,2}\s+(?:AB|AS|A\/S|Oy|Inc\.?|Ltd\.?|GmbH|Corp\.?|Group|Systems|Logistics|Cloud))\b/;
-  for (const line of lines) {
-    const match = line.match(legalSuffixRegex);
+    /\b([A-ZÅÄÖ][A-Za-zÅÄÖåäö0-9&\-]{1,20}(?:[ \t]+[A-ZÅÄÖa-zåäö0-9&\-]{2,20}){0,2}[ \t]+(?:AB|Aktiebolag|AS|A\/S|Oy|Oyj|Inc\.?|Ltd\.?|GmbH|Corp\.?))\b/;
+  for (const lineObj of structuredLines) {
+    if ((lineObj.confidence ?? 80) < 65) continue;
+    // Skip sender lines ("Avsändare: ...") so we don't pick sender over receiver
+    if (/^(?:Avsändare|From|Sender|Ship\s*From)\b/i.test(lineObj.text.trim())) continue;
+    const match = lineObj.text.match(legalSuffixRegex);
     if (match?.[1]) {
       const candidate = cleanExplicitCustomerCandidate(match[1]);
       if (candidate && candidate !== 'Okänd kund') {
@@ -330,32 +499,14 @@ export function extractCustomerFromText(
     }
   }
 
-  // Tier 2b: Logistics Carrier Brands (e.g. DHL, PostNord, UPS, DB Schenker)
+  // Tier 2b: Logistics Carrier Brands (e.g. DHL, PostNord, DB Schenker, UPS, Bring)
   for (const brand of BRAND_PATTERNS) {
     if (brand.isCarrier && brand.regex.test(combinedText)) {
       return brand.canonical;
     }
   }
 
-  // Tier 3b: Prominent clean header line at top of label (e.g. a standalone brand name on line 1-2)
-  for (const line of lines.slice(0, 3)) {
-    const cleanLine = line.replace(/[^A-Za-zÅÄÖåäö0-9& \-]/g, '').trim();
-    if (
-      cleanLine.length >= 3 &&
-      cleanLine.length <= 24 &&
-      !/\d{3,}/.test(cleanLine) &&
-      !/^(delivery|removal|inleverans|retur|utlastning|kolli|paket|fraktsedel|shipping|label)$/i.test(
-        cleanLine
-      )
-    ) {
-      const candidate = cleanExplicitCustomerCandidate(cleanLine);
-      if (candidate && candidate !== 'Okänd kund') {
-        return candidate;
-      }
-    }
-  }
-
-  // Tier 4: User-provided hint fallback (e.g. "Endast Microsoft Delivery" or "Volvo")
+  // Tier 4: User-provided hint fallback (e.g. "Microsoft Delivery" or "Volvo")
   if (hint && hint.trim()) {
     const cleanHint = hint.trim();
     for (const brand of BRAND_PATTERNS) {
@@ -377,6 +528,17 @@ export function extractCustomerFromText(
   return 'Okänd kund';
 }
 
+function isValidReferenceCodeToken(code: string): boolean {
+  const compact = code.replace(/[\s\-_]+/g, '');
+  if (compact.length < 5 || compact.length > 26) return false;
+  if (isBarcodeStripeOrNoiseText(compact)) return false;
+  if (looksLikeDateOrPhoneOrPostalCode(code)) return false;
+  // Reject box fraction patterns like "Del1av3" or "1of4"
+  if (/\d+(?:av|of)\d+/i.test(compact)) return false;
+  const digits = (compact.match(/\d/g) ?? []).length;
+  return digits >= 3;
+}
+
 export function extractReferenceCandidates(
   ocrText: string,
   ocrLines?: OcrLineBox[],
@@ -394,33 +556,36 @@ export function extractReferenceCandidates(
   const seenKeys = new Set<string>();
 
   const addCandidate = (cand: ExtractedRefCandidate) => {
+    if (!isValidReferenceCodeToken(cand.referenceNumber)) return;
     const key = normalizeComparisonKey(cand.referenceNumber);
-    if (!key || key.length < 4) return;
+    if (!key || key.length < 5) return;
     if (seenKeys.has(key)) return;
     seenKeys.add(key);
     found.push(cand);
   };
 
-  // Pass 1: Direct Del / Rem / DLV / RMV / INL / RET / UTL reference codes
+  // Pass 1a: Strictly single-line Del / Rem / DLV / RMV / INL / RET / UTL / RMA codes (note [ \t] instead of \s!)
   const directPrefixRegex =
-    /\b(Del|DEL|DLV|INL|Rem|REM|RMV|RET|UTL|De[1I|]|0el|Re(?:rn|m))[\s\-_:]*([0-9][0-9OIoIl|SB\s\-]{3,22})\b/g;
+    /\b(Del|DEL|DLV|INL|Rem|REM|RMV|RET|UTL|RMA|De[1I|]|0el|Re(?:rn|m))[ \t\-_:]*([A-Z0-9][A-Z0-9OIoIl|SB \t\-]{3,22})\b/g;
 
   lines.forEach((lineObj, idx) => {
-    const lineText = lineObj.text;
-    if (!lineText || !lineText.trim()) return;
+    const lineText = lineObj.text?.trim() ?? '';
+    if (!lineText || isBarcodeStripeOrNoiseText(lineText)) return;
 
     const lineConf = typeof lineObj.confidence === 'number' ? lineObj.confidence : overallConfidence;
+    if (lineConf < 40) return;
+
     const centerY = lineObj.bbox ? (lineObj.bbox.y0 + lineObj.bbox.y1) / 2 : undefined;
     const centerX = lineObj.bbox ? (lineObj.bbox.x0 + lineObj.bbox.x1) / 2 : undefined;
 
     for (const match of lineText.matchAll(directPrefixRegex)) {
       const rawPrefix = match[1];
-      // Stop capture before trailing words if spaces were matched
-      const rawTailChunk = match[2].trim().split(/\s+(?=[A-Za-z]{2,})/)[0];
-      const compactCheck = rawTailChunk.replace(/[\s\-]+/g, '');
+      // Stop before any space followed by words (e.g. "Del001234567 Vikt 4kg" or "Del 1 av 3")
+      if (/^[0-9]+[ \t]+(?:av|of|st|kg)\b/i.test(match[2].trim())) continue;
+      const rawTailChunk = match[2].trim().split(/[ \t]+(?=[A-Za-zåäöÅÄÖ]{2,})/)[0];
+      const compactCheck = rawTailChunk.replace(/[ \t\-]+/g, '');
       if (compactCheck.length < 4 || compactCheck.length > 20) continue;
 
-      // For OCR prefix repairs like De1..., require leading 0 and >=5 chars to avoid German VAT etc.
       if (/^(De[1I|]|0el|Rern)$/i.test(rawPrefix) && !/^0[\dOIoIl|]{4,}$/.test(compactCheck)) {
         continue;
       }
@@ -428,8 +593,10 @@ export function extractReferenceCandidates(
       const { normalized, impliedType, repairedAmbiguous, prefixRepaired } =
         normalizeDelRemPrefixAndTail(rawPrefix, compactCheck);
 
+      if (!isValidReferenceCodeToken(normalized)) continue;
+
       let confidence: ConfidenceLevel =
-        lineConf >= 78 ? 'high' : lineConf >= 55 ? 'medium' : 'low';
+        lineConf >= 78 ? 'high' : lineConf >= 56 ? 'medium' : 'low';
       const notes: string[] = [];
 
       if (repairedAmbiguous || prefixRepaired) {
@@ -450,15 +617,17 @@ export function extractReferenceCandidates(
       });
     }
 
-    // Pass 1b: "Delivery Nr: 001234567" / "Removal ID: 004891203" where number lacks Del/Rem prefix
+    // Pass 1b: "Delivery Nr: 001234567" / "Removal ID: 004891203"
     const labeledDelRemRegex =
-      /\b(Delivery|Inleverans|Removal|Retur|Utlastning)\s*(?:nr|no|num(?:ber|mer)?|id|ref|#|:)[\s.:\-#]*([A-Z0-9][A-Z0-9\-]{4,20})\b/gi;
+      /\b(Delivery|Inleverans|Removal|Retur|Utlastning|RMA)[ \t]*(?:nr|no|num(?:ber|mer)?|id|ref|#|:)[ \t.:\-#]*([A-Z0-9][A-Z0-9\-]{4,22})\b/gi;
     for (const match of lineText.matchAll(labeledDelRemRegex)) {
       const keyword = match[1];
       const rawCode = match[2].trim();
       if (/^(delivery|removal|kund|customer)$/i.test(rawCode)) continue;
+      if (looksLikeDateOrPhoneOrPostalCode(rawCode)) continue;
+
       const impliedType = inferPackageType(keyword, rawCode);
-      const hasPrefixAlready = /^(del|dlv|inl|rem|rmv|ret|utl)/i.test(rawCode);
+      const hasPrefixAlready = /^(del|dlv|inl|rem|rmv|ret|utl|rma)/i.test(rawCode);
       const formattedRef = hasPrefixAlready
         ? normalizeDelRemPrefixAndTail(rawCode.slice(0, 3), rawCode.slice(3)).normalized
         : impliedType === 'Delivery' && /^\d{5,}$/.test(rawCode)
@@ -470,7 +639,7 @@ export function extractReferenceCandidates(
       addCandidate({
         referenceNumber: formattedRef,
         impliedType,
-        confidence: lineConf >= 75 ? 'high' : lineConf >= 52 ? 'medium' : 'low',
+        confidence: lineConf >= 75 ? 'high' : lineConf >= 55 ? 'medium' : 'low',
         centerY,
         centerX,
         lineIndex: idx,
@@ -482,24 +651,29 @@ export function extractReferenceCandidates(
     return found;
   }
 
-  // Pass 2: Secondary warehouse reference numbers (Ref, Order, Shipment, Kolli-ID, PO, RITM, INC)
+  // Pass 2: Explicit warehouse/shipping reference labels & standard carrier tracking formats
   const genericRefRegex =
-    /\b(?:Ref(?:erens|erence)?|Order(?:\s*nr|\s*no|\s*id)?|Shipment(?:\s*ID)?|Kolli(?:\s*-?\s*ID|\s*nr)?|Sändnings(?:-?id|nr)|PO|SO)\s*[:#.]+\s*([A-Z0-9][A-Z0-9\-_]{4,22})\b/gi;
-  const ticketRegex = /\b((?:RITM|INC|CHG|SCTASK|SHP|ORD)[0-9]{5,14})\b/g;
+    /\b(?:Ref(?:erens|erence)?|Order(?:[ \t]*nr|[ \t]*no|[ \t]*id)?|Beställningsnr|Shipment(?:[ \t]*ID)?|Kolli(?:[ \t]*-?[ \t]*ID|[ \t]*nr)?|Sändnings(?:-?id|nr)|Tracking(?:[ \t]*no)?|Waybill|AWB|PO|SO)[ \t]*[:#.]+[ \t]*([A-Z0-9][A-Z0-9\-_]{4,24})\b/gi;
+
+  // Well-known logistics & IT asset tracking patterns (UPS 1Z, PostNord/DHL JJD/JVGL/UPU, ServiceNow RITM/INC)
+  const structuredTrackingRegex =
+    /\b(1Z[A-Z0-9]{16}|JJD\d{12,20}|JVGL\d{10,20}|0037\d{16}|[A-Z]{2}\d{9}SE|(?:RITM|INC|CHG|SCTASK|SHP|ORD)[0-9]{5,14})\b/g;
 
   lines.forEach((lineObj, idx) => {
-    const lineText = lineObj.text;
+    const lineText = lineObj.text?.trim() ?? '';
     const lineConf = typeof lineObj.confidence === 'number' ? lineObj.confidence : overallConfidence;
+    if (!lineText || lineConf < 52 || isBarcodeStripeOrNoiseText(lineText)) return;
+
     const centerY = lineObj.bbox ? (lineObj.bbox.y0 + lineObj.bbox.y1) / 2 : undefined;
     const centerX = lineObj.bbox ? (lineObj.bbox.x0 + lineObj.bbox.x1) / 2 : undefined;
 
     for (const match of lineText.matchAll(genericRefRegex)) {
       const code = match[1].trim();
-      if (/\d/.test(code)) {
+      if (/\d/.test(code) && !looksLikeDateOrPhoneOrPostalCode(code)) {
         addCandidate({
           referenceNumber: code,
           impliedType: inferPackageType(undefined, code, lineText),
-          confidence: lineConf >= 78 ? 'high' : lineConf >= 55 ? 'medium' : 'low',
+          confidence: lineConf >= 78 ? 'high' : 'medium',
           centerY,
           centerX,
           lineIndex: idx,
@@ -507,11 +681,11 @@ export function extractReferenceCandidates(
       }
     }
 
-    for (const match of lineText.matchAll(ticketRegex)) {
+    for (const match of lineText.matchAll(structuredTrackingRegex)) {
       addCandidate({
         referenceNumber: match[1],
         impliedType: inferPackageType(undefined, match[1], lineText),
-        confidence: lineConf >= 78 ? 'high' : 'medium',
+        confidence: lineConf >= 75 ? 'high' : 'medium',
         centerY,
         centerX,
         lineIndex: idx,
@@ -525,7 +699,6 @@ export function extractReferenceCandidates(
 function parseStructuredBarcodePayload(text: string): Partial<RawDetectedPackage> | null {
   const trimmed = text.trim();
 
-  // JSON QR Code payload
   if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
     try {
       const obj = JSON.parse(trimmed) as Record<string, unknown>;
@@ -559,11 +732,10 @@ function parseStructuredBarcodePayload(text: string): Partial<RawDetectedPackage
         };
       }
     } catch {
-      // Not valid JSON, continue
+      // Not valid JSON
     }
   }
 
-  // Multi-part QR / DataMatrix text with key-values or pipe separators containing Del/Rem
   if (/[|\n;]/.test(trimmed)) {
     const refs = extractReferenceCandidates(trimmed, undefined, 95);
     const customer = extractCustomerFromText(trimmed);
@@ -594,6 +766,7 @@ function groupFrameBarcodes(barcodes: DetectedBarcodeRead[]): DeduplicatedBarcod
   for (const rawBc of barcodes) {
     const cleaned = cleanBarcodeValue(rawBc.text);
     if (!cleaned || cleaned.length < 4) continue;
+    if (isBarcodeStripeOrNoiseText(cleaned)) continue;
 
     const key = normalizeComparisonKey(cleaned);
     const pos = rawBc.position;
@@ -613,7 +786,6 @@ function groupFrameBarcodes(barcodes: DetectedBarcodeRead[]): DeduplicatedBarcod
       continue;
     }
 
-    // Check if this barcode read is at a genuinely separated physical position in the same frame
     if (center && existing.centers.length > 0) {
       const isFarFromAll = existing.centers.every((c) => {
         const dist = Math.hypot(c.x - center.x, c.y - center.y);
@@ -629,20 +801,43 @@ function groupFrameBarcodes(barcodes: DetectedBarcodeRead[]): DeduplicatedBarcod
   return Array.from(groups.values());
 }
 
-function extractPrintedNumericBarcodeFallback(ocrText: string): string {
-  // Matches EAN-13, EAN-14, SSCC-18, or 10-20 digit barcode numbers printed beneath bars
-  const compactLines = ocrText.split(/\r?\n/);
-  for (const line of compactLines) {
-    const trimmed = line.trim();
-    // e.g. "7 310012 345678" or "7310012345678" or "00373125519820"
-    if (/^\d[\d\s]{9,22}\d$/.test(trimmed)) {
-      const digits = trimmed.replace(/\s+/g, '');
-      if (digits.length >= 10 && digits.length <= 22) {
-        return digits;
+/**
+ * Strict fallback for human-readable barcode digits printed below 1D bars:
+ * Only accepts confident lines that pass GS1 Modulo-10 checksum (EAN-8/12/13/14/SSCC-18)
+ * or clean 12-20 digit SSCC/tracking strings that are NOT phone numbers, dates, or stripe noise.
+ */
+function extractPrintedNumericBarcodeFallback(
+  ocrText: string,
+  ocrLines?: OcrLineBox[],
+  overallConfidence = 80
+): { code: string; verifiedChecksum: boolean } | null {
+  const lines: OcrLineBox[] =
+    ocrLines && ocrLines.length > 0
+      ? ocrLines
+      : ocrText.split(/\r?\n/).map((text) => ({ text, confidence: overallConfidence }));
+
+  for (const lineObj of lines) {
+    const trimmed = lineObj.text.trim();
+    const conf = lineObj.confidence ?? overallConfidence;
+    if (conf < 68 || isBarcodeStripeOrNoiseText(trimmed)) continue;
+
+    // Match standalone numeric / GS1 AI line like "(00) 373325380001234565" or "7 310012 345678"
+    if (/^(?:\(\d{2,4}\)[ \t]*)?\d[\d \t]{7,23}\d$/.test(trimmed)) {
+      const digits = trimmed.replace(/[()\s]+/g, '');
+      if (digits.length < 8 || digits.length > 22) continue;
+      if (looksLikeDateOrPhoneOrPostalCode(digits)) continue;
+
+      if (hasValidGs1Mod10Checksum(digits)) {
+        return { code: digits, verifiedChecksum: true };
+      }
+
+      // Only accept non-GS1-checksum pure digits if very high OCR confidence and >= 12 digits
+      if (conf >= 84 && digits.length >= 12) {
+        return { code: digits, verifiedChecksum: false };
       }
     }
   }
-  return '';
+  return null;
 }
 
 export function parseLabelFrame(input: FrameAnalysisInput): RawDetectedPackage[] {
@@ -660,7 +855,7 @@ export function parseLabelFrame(input: FrameAnalysisInput): RawDetectedPackage[]
   const results: RawDetectedPackage[] = [];
   const usedBarcodeKeys = new Set<string>();
 
-  // 1. Check structured 2D QR/DataMatrix payloads first
+  // 1. Structured 2D QR / DataMatrix payloads
   for (const bc of barcodeGroups) {
     const structured = parseStructuredBarcodePayload(bc.text);
     if (structured && structured.referenceNumber) {
@@ -682,7 +877,6 @@ export function parseLabelFrame(input: FrameAnalysisInput): RawDetectedPackage[]
     }
   }
 
-  // Separate remaining barcodes into reference-encoding barcodes vs numeric/tracking barcodes
   const refBarcodes = barcodeGroups.filter(
     (b) => !usedBarcodeKeys.has(normalizeComparisonKey(b.text)) && isReferenceLikeCode(b.text)
   );
@@ -690,7 +884,6 @@ export function parseLabelFrame(input: FrameAnalysisInput): RawDetectedPackage[]
     (b) => !usedBarcodeKeys.has(normalizeComparisonKey(b.text)) && !isReferenceLikeCode(b.text)
   );
 
-  // Merge reference barcodes with OCR reference candidates so barcode-verified refs upgrade confidence to 'high'
   const mergedRefs: Array<{
     referenceNumber: string;
     impliedType: PackageType;
@@ -719,9 +912,7 @@ export function parseLabelFrame(input: FrameAnalysisInput): RawDetectedPackage[]
 
   for (const ocrRef of ocrRefs) {
     const key = normalizeComparisonKey(ocrRef.referenceNumber);
-    const existing = mergedRefs.find(
-      (m) => normalizeComparisonKey(m.referenceNumber) === key
-    );
+    const existing = mergedRefs.find((m) => normalizeComparisonKey(m.referenceNumber) === key);
     if (!existing) {
       mergedRefs.push({
         referenceNumber: ocrRef.referenceNumber,
@@ -748,10 +939,7 @@ export function parseLabelFrame(input: FrameAnalysisInput): RawDetectedPackage[]
         pairedBarcode = tb.text;
         pairedCount = Math.max(pairedCount, tb.distinctPhysicalCount);
         usedBarcodeKeys.add(normalizeComparisonKey(tb.text));
-      } else if (
-        availableTracking.length > 0 &&
-        ref.centerY !== undefined
-      ) {
+      } else if (availableTracking.length > 0 && ref.centerY !== undefined) {
         let bestIdx = -1;
         let bestDist = Infinity;
         availableTracking.forEach((tb, idx) => {
@@ -775,7 +963,14 @@ export function parseLabelFrame(input: FrameAnalysisInput): RawDetectedPackage[]
       }
 
       if (!pairedBarcode && mergedRefs.length === 1) {
-        pairedBarcode = extractPrintedNumericBarcodeFallback(input.ocrText);
+        const printed = extractPrintedNumericBarcodeFallback(
+          input.ocrText,
+          input.ocrLines,
+          input.ocrConfidence
+        );
+        if (printed) {
+          pairedBarcode = printed.code;
+        }
       }
 
       const resolvedType =
@@ -785,7 +980,6 @@ export function parseLabelFrame(input: FrameAnalysisInput): RawDetectedPackage[]
             ? globalType
             : inferPackageType(undefined, ref.referenceNumber, input.hint);
 
-      // Barcode pairing boosts medium OCR confidence when the label is otherwise clean
       const finalConfidence: ConfidenceLevel =
         pairedBarcode && ref.confidence === 'medium' && !ref.note ? 'high' : ref.confidence;
 
@@ -802,7 +996,7 @@ export function parseLabelFrame(input: FrameAnalysisInput): RawDetectedPackage[]
     }
   }
 
-  // 3. Any remaining tracking/1D barcodes that didn't pair with a Del/Rem number (barcode-only labels!)
+  // 3. Remaining real scanned 1D/2D barcodes (checksum-verified by ZXing/BarcodeDetector!)
   for (const tb of trackingBarcodes) {
     const key = normalizeComparisonKey(tb.text);
     if (usedBarcodeKeys.has(key)) continue;
@@ -823,28 +1017,34 @@ export function parseLabelFrame(input: FrameAnalysisInput): RawDetectedPackage[]
       timestamp: timestamp || undefined,
       notes:
         resolvedType === 'Okänd'
-          ? 'Streckkod avläst lokalt — välj Delivery eller Removal vid behov'
+          ? 'Streckkod avläst — välj Delivery eller Removal vid behov'
           : undefined,
     });
   }
 
-  // 4. Fallback: printed 10-22 digit barcode number read via OCR when bars were too blurry for ZXing
+  // 4. Strict fallback: GS1 checksum-verified printed barcode digits when bars couldn't decode
   if (results.length === 0) {
-    const printedDigits = extractPrintedNumericBarcodeFallback(input.ocrText);
-    if (printedDigits) {
+    const printed = extractPrintedNumericBarcodeFallback(
+      input.ocrText,
+      input.ocrLines,
+      input.ocrConfidence
+    );
+    if (printed) {
       const resolvedType =
         globalType !== 'Okänd'
           ? globalType
-          : inferPackageType(undefined, printedDigits, input.hint);
+          : inferPackageType(undefined, printed.code, input.hint);
       results.push({
         customer: globalCustomer,
         type: resolvedType,
-        referenceNumber: printedDigits,
-        barcode: printedDigits,
+        referenceNumber: printed.code,
+        barcode: printed.code,
         quantity: 1,
-        confidence: input.ocrConfidence >= 78 ? 'medium' : 'low',
+        confidence: printed.verifiedChecksum ? 'medium' : 'low',
         timestamp: timestamp || undefined,
-        notes: 'Streckkodsnummer avläst via lokal OCR — kontrollera siffror',
+        notes: printed.verifiedChecksum
+          ? 'GS1-streckkod avläst via OCR'
+          : 'Streckkodsnummer avläst via OCR — kontrollera siffror',
       });
     }
   }
@@ -876,18 +1076,51 @@ function getSightingIdentityKey(pkg: RawDetectedPackage): string {
   return ref || bc;
 }
 
-/**
- * Aggregates per-frame detections across a video sweep so that:
- * - Hovering the camera over the SAME physical box across multiple consecutive frames counts it ONCE
- *   (while combining the sharpest customer name, barcode, type, and highest confidence seen across those frames).
- * - Filming TWO separate physical boxes with the SAME reference number (either separated by another package
- *   or separated by a clear camera-movement gap, or seen simultaneously in one wide frame) counts BOTH!
- */
+export function mergePackageSightingDetails(
+  existingPkg: RawDetectedPackage,
+  incomingPkg: RawDetectedPackage
+): RawDetectedPackage {
+  const curConf = toConfidence(existingPkg.confidence);
+  const newConf = toConfidence(incomingPkg.confidence);
+  const bestConf = CONF_SCORE[newConf] >= CONF_SCORE[curConf] ? newConf : curConf;
+
+  const existingCustomer = normalizeCustomerName(existingPkg.customer);
+  const incomingCustomer = normalizeCustomerName(incomingPkg.customer);
+  const bestCustomer = !/^okänd\s+kund$/i.test(existingCustomer)
+    ? existingCustomer
+    : incomingCustomer;
+
+  const existingType = inferPackageType(existingPkg.type, existingPkg.referenceNumber);
+  const incomingType = inferPackageType(incomingPkg.type, incomingPkg.referenceNumber);
+  const bestType = existingType !== 'Okänd' ? existingType : incomingType;
+
+  const existingRef = existingPkg.referenceNumber ?? '';
+  const incomingRef = incomingPkg.referenceNumber ?? '';
+  // Prefer explicit Del/Rem reference over raw numeric barcode when merging frames of the same label
+  const bestRef =
+    isReferenceLikeCode(existingRef)
+      ? existingRef
+      : isReferenceLikeCode(incomingRef)
+        ? incomingRef
+        : existingRef || incomingRef;
+
+  return {
+    customer: bestCustomer,
+    type: bestType,
+    referenceNumber: bestRef,
+    barcode: existingPkg.barcode || incomingPkg.barcode || '',
+    confidence: bestConf,
+    timestamp: existingPkg.timestamp || incomingPkg.timestamp,
+    notes: bestConf === 'high' ? undefined : existingPkg.notes || incomingPkg.notes,
+  };
+}
+
 export function aggregateVideoFrameDetections(
   slices: VideoFrameDetectionSlice[]
 ): RawDetectedPackage[] {
   interface ActiveSighting {
     key: string;
+    barcodeKey: string;
     pkg: RawDetectedPackage;
     firstSeenSec: number;
     lastSeenSec: number;
@@ -911,22 +1144,30 @@ export function aggregateVideoFrameDetections(
     const keysInThisFrame = new Set<string>();
 
     for (const pkg of slice.packages) {
-      const key = getSightingIdentityKey(pkg);
-      if (!key) continue;
-      keysInThisFrame.add(key);
+      const primaryKey = getSightingIdentityKey(pkg);
+      if (!primaryKey) continue;
+      const bcKey = pkg.barcode ? normalizeComparisonKey(pkg.barcode) : '';
 
-      // Also check if an active sighting existed only under barcode while this frame read both Del# + barcode
-      let matchedKey = key;
-      if (!activeByKey.has(matchedKey) && pkg.barcode) {
-        const bcKey = normalizeComparisonKey(pkg.barcode);
-        if (activeByKey.has(bcKey)) {
-          const prev = activeByKey.get(bcKey)!;
-          activeByKey.delete(bcKey);
-          prev.key = key;
-          activeByKey.set(key, prev);
-          matchedKey = key;
+      // Match either by primary reference key OR by shared barcode key
+      // (e.g. Frame 1 decoded barcode 7310012345678, Frame 2 decoded both Del001234567 + 7310012345678!)
+      let matchedKey = primaryKey;
+      if (!activeByKey.has(matchedKey)) {
+        for (const [k, s] of activeByKey.entries()) {
+          if (
+            (bcKey && (k === bcKey || s.barcodeKey === bcKey)) ||
+            (s.barcodeKey && s.barcodeKey === primaryKey)
+          ) {
+            activeByKey.delete(k);
+            s.key = primaryKey;
+            s.barcodeKey = bcKey || s.barcodeKey;
+            activeByKey.set(primaryKey, s);
+            matchedKey = primaryKey;
+            break;
+          }
         }
       }
+
+      keysInThisFrame.add(matchedKey);
 
       const existing = activeByKey.get(matchedKey);
       if (existing) {
@@ -934,44 +1175,16 @@ export function aggregateVideoFrameDetections(
         const frameGap = slice.frameIndex - existing.lastFrameIndex;
         const sawDifferentPackageBetween = existing.interveningOtherKeys.size > 0;
 
-        // If another distinct package was scanned in between (and at least 1.2s passed),
-        // OR the camera left the label for >= 2.8s across >= 3 frames, treat as a NEW physical box!
         const isNewPhysicalBox =
-          (sawDifferentPackageBetween && timeGap >= 1.2) ||
-          (timeGap >= 2.8 && frameGap >= 3);
+          (sawDifferentPackageBetween && timeGap >= 1.1) ||
+          (timeGap >= 2.6 && frameGap >= 3);
 
         if (isNewPhysicalBox) {
           flushSighting(existing);
           activeByKey.delete(matchedKey);
         } else {
-          // Upgrade existing sighting with the clearest details seen across frames
-          const curConf = toConfidence(existing.pkg.confidence);
-          const newConf = toConfidence(pkg.confidence);
-          const bestConf = CONF_SCORE[newConf] >= CONF_SCORE[curConf] ? newConf : curConf;
-
-          const existingCustomer = normalizeCustomerName(existing.pkg.customer);
-          const incomingCustomer = normalizeCustomerName(pkg.customer);
-          const bestCustomer =
-            !/^okänd\s+kund$/i.test(existingCustomer) ? existingCustomer : incomingCustomer;
-
-          const existingType = inferPackageType(existing.pkg.type, existing.pkg.referenceNumber);
-          const incomingType = inferPackageType(pkg.type, pkg.referenceNumber);
-          const bestType = existingType !== 'Okänd' ? existingType : incomingType;
-
-          const existingRef = existing.pkg.referenceNumber ?? '';
-          const incomingRef = pkg.referenceNumber ?? '';
-          const bestRef =
-            isReferenceLikeCode(existingRef) || !incomingRef ? existingRef : incomingRef;
-
-          existing.pkg = {
-            customer: bestCustomer,
-            type: bestType,
-            referenceNumber: bestRef || existingRef,
-            barcode: existing.pkg.barcode || pkg.barcode || '',
-            confidence: bestConf,
-            timestamp: existing.pkg.timestamp,
-            notes: bestConf === 'high' ? undefined : existing.pkg.notes || pkg.notes,
-          };
+          existing.pkg = mergePackageSightingDetails(existing.pkg, pkg);
+          if (bcKey) existing.barcodeKey = bcKey;
           existing.lastSeenSec = slice.timestampSec;
           existing.lastFrameIndex = slice.frameIndex;
           existing.maxSimultaneousQty = Math.max(
@@ -984,6 +1197,7 @@ export function aggregateVideoFrameDetections(
 
       activeByKey.set(matchedKey, {
         key: matchedKey,
+        barcodeKey: bcKey,
         pkg: { ...pkg },
         firstSeenSec: slice.timestampSec,
         lastSeenSec: slice.timestampSec,
@@ -993,7 +1207,6 @@ export function aggregateVideoFrameDetections(
       });
     }
 
-    // Record intervening distinct packages for any active sighting NOT seen in this frame
     if (keysInThisFrame.size > 0) {
       for (const [activeKey, sighting] of activeByKey.entries()) {
         if (!keysInThisFrame.has(activeKey)) {

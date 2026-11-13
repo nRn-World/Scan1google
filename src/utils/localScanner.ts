@@ -5,9 +5,17 @@ import {
   prepareZXingModule as prepareZXingWriterModule,
   writeBarcode,
 } from 'zxing-wasm/writer';
-import { mergeInventoryItems, type InventoryItem, type RawDetectedPackage } from './inventory';
+import {
+  mergeInventoryItems,
+  normalizeComparisonKey,
+  type InventoryItem,
+  type RawDetectedPackage,
+} from './inventory';
 import {
   aggregateVideoFrameDetections,
+  formatTimestampSec,
+  isBarcodeStripeOrNoiseText,
+  mergePackageSightingDetails,
   parseLabelFrame,
   type DetectedBarcodeRead,
   type OcrLineBox,
@@ -25,6 +33,7 @@ export interface ScanProgress {
 
 export interface CapturedCameraFrame {
   canvas: HTMLCanvasElement;
+  labelCanvas?: HTMLCanvasElement;
   timestampSec: number;
   sharpness: number;
 }
@@ -33,6 +42,13 @@ export interface LocalScanResult {
   items: InventoryItem[];
   rawPackages: RawDetectedPackage[];
   summaryNote: string;
+}
+
+export interface LiveScannedEntry {
+  uid: string;
+  pkg: RawDetectedPackage;
+  firstSeenSec: number;
+  lastSeenSec: number;
 }
 
 function getLocalAssetBaseUrl(): string {
@@ -51,6 +67,7 @@ function getLocalAssetUrl(fileName: string): string {
 let zxingReaderConfigured = false;
 let zxingWriterConfigured = false;
 let tesseractWorkerPromise: Promise<Tesseract.Worker> | null = null;
+let ocrWorkerBusy = false;
 
 function ensureZXingReaderConfigured(): void {
   if (zxingReaderConfigured) return;
@@ -99,10 +116,8 @@ async function getLocalOcrWorker(
           langPath: getLocalAssetUrl(''),
           gzip: true,
           logger: (msg) => {
-            if (onProgress && msg.status) {
-              if (msg.status.includes('loading')) {
-                onProgress('Laddar lokal OCR-modell (sparas offline på enheten)...');
-              }
+            if (onProgress && msg.status && msg.status.includes('loading')) {
+              onProgress('Laddar lokal OCR-modell (sparas offline på enheten)...');
             }
           },
         });
@@ -120,6 +135,19 @@ async function getLocalOcrWorker(
     })();
   }
   return tesseractWorkerPromise;
+}
+
+/**
+ * Pre-warms both ZXing WASM and the local Tesseract Web Worker as soon as the camera opens
+ * so the very first label scan happens without cold-start delay.
+ */
+export async function warmUpLocalScanner(): Promise<void> {
+  try {
+    ensureZXingReaderConfigured();
+    await getLocalOcrWorker();
+  } catch {
+    // Non-fatal pre-warm
+  }
 }
 
 interface NativeBarcodeDetection {
@@ -191,7 +219,6 @@ export function computeCanvasSharpness(canvas: HTMLCanvasElement): {
     }
   }
 
-  // Downsample to 24x18 signature for quick static-frame similarity detection
   const sigW = 24;
   const sigH = 18;
   const signature = new Uint8Array(sigW * sigH);
@@ -209,13 +236,130 @@ export function computeCanvasSharpness(canvas: HTMLCanvasElement): {
   };
 }
 
-function signatureMeanDiff(a: Uint8Array, b: Uint8Array): number {
+export function signatureMeanDiff(a: Uint8Array, b: Uint8Array): number {
   if (a.length === 0 || a.length !== b.length) return Infinity;
   let sum = 0;
   for (let i = 0; i < a.length; i++) {
     sum += Math.abs(a[i] - b[i]);
   }
   return sum / a.length;
+}
+
+/**
+ * Automatically locates a bright, high-contrast shipping label card inside a wider camera frame
+ * (filtering out surrounding brown cardboard, pallet wood, dark warehouse floor, and edges).
+ */
+export function cropToBrightLabelRegion(source: HTMLCanvasElement): {
+  canvas: HTMLCanvasElement;
+  offsetX: number;
+  offsetY: number;
+  wasCropped: boolean;
+} {
+  const srcW = source.width;
+  const srcH = source.height;
+  if (srcW < 240 || srcH < 240) {
+    return { canvas: source, offsetX: 0, offsetY: 0, wasCropped: false };
+  }
+
+  const gridW = 48;
+  const gridH = 36;
+  const tmp = document.createElement('canvas');
+  tmp.width = gridW;
+  tmp.height = gridH;
+  const ctx = tmp.getContext('2d', { willReadFrequently: true });
+  if (!ctx) {
+    return { canvas: source, offsetX: 0, offsetY: 0, wasCropped: false };
+  }
+
+  ctx.drawImage(source, 0, 0, gridW, gridH);
+  const { data } = ctx.getImageData(0, 0, gridW, gridH);
+  const lum = new Uint8Array(gridW * gridH);
+  for (let i = 0, p = 0; i < lum.length; i++, p += 4) {
+    lum[i] = (data[p] * 77 + data[p + 1] * 150 + data[p + 2] * 29) >> 8;
+  }
+
+  const sortedLum = Array.from(lum).sort((a, b) => a - b);
+  const medianLum = sortedLum[Math.floor(sortedLum.length * 0.5)] ?? 120;
+  const p80Lum = sortedLum[Math.floor(sortedLum.length * 0.8)] ?? 180;
+
+  // Shipping labels are bright paper with dark ink edges/bars inside
+  const brightThreshold = Math.max(115, Math.round((medianLum + p80Lum) * 0.52));
+
+  let minGX = gridW;
+  let maxGX = -1;
+  let minGY = gridH;
+  let maxGY = -1;
+  let activeCells = 0;
+
+  for (let gy = 1; gy < gridH - 1; gy++) {
+    for (let gx = 1; gx < gridW - 1; gx++) {
+      const idx = gy * gridW + gx;
+      const val = lum[idx];
+      const localContrast =
+        Math.abs(val - lum[idx - 1]) +
+        Math.abs(val - lum[idx + 1]) +
+        Math.abs(val - lum[idx - gridW]) +
+        Math.abs(val - lum[idx + gridW]);
+
+      const neighborMax = Math.max(
+        val,
+        lum[idx - 1],
+        lum[idx + 1],
+        lum[idx - gridW],
+        lum[idx + gridW]
+      );
+
+      // Cell is either bright label paper or dark ink/barcode directly on bright label paper
+      if (val >= brightThreshold || (neighborMax >= brightThreshold + 12 && localContrast >= 48)) {
+        activeCells++;
+        if (gx < minGX) minGX = gx;
+        if (gx > maxGX) maxGX = gx;
+        if (gy < minGY) minGY = gy;
+        if (gy > maxGY) maxGY = gy;
+      }
+    }
+  }
+
+  if (maxGX <= minGX || maxGY <= minGY || activeCells < 12) {
+    return { canvas: source, offsetX: 0, offsetY: 0, wasCropped: false };
+  }
+
+  const boxAreaRatio =
+    ((maxGX - minGX + 1) * (maxGY - minGY + 1)) / (gridW * gridH);
+
+  // Only crop if the detected region is a meaningful sub-region (not tiny noise and not already full frame)
+  if (boxAreaRatio < 0.1 || boxAreaRatio > 0.84) {
+    return { canvas: source, offsetX: 0, offsetY: 0, wasCropped: false };
+  }
+
+  const padX = Math.round(srcW * 0.08);
+  const padY = Math.round(srcH * 0.08);
+  const x0 = Math.max(0, Math.floor((minGX / gridW) * srcW) - padX);
+  const y0 = Math.max(0, Math.floor((minGY / gridH) * srcH) - padY);
+  const x1 = Math.min(srcW, Math.ceil(((maxGX + 1) / gridW) * srcW) + padX);
+  const y1 = Math.min(srcH, Math.ceil(((maxGY + 1) / gridH) * srcH) + padY);
+  const cropW = x1 - x0;
+  const cropH = y1 - y0;
+
+  if (cropW < 180 || cropH < 140) {
+    return { canvas: source, offsetX: 0, offsetY: 0, wasCropped: false };
+  }
+
+  const out = document.createElement('canvas');
+  out.width = cropW;
+  out.height = cropH;
+  const outCtx = out.getContext('2d');
+  if (!outCtx) {
+    return { canvas: source, offsetX: 0, offsetY: 0, wasCropped: false };
+  }
+  outCtx.drawImage(source, x0, y0, cropW, cropH, 0, 0, cropW, cropH);
+
+  return {
+    canvas: out,
+    offsetX: x0,
+    offsetY: y0,
+    wasCropped: true,
+  };
 }
 
 function rotateCanvas(source: HTMLCanvasElement, degrees: number): HTMLCanvasElement {
@@ -236,18 +380,24 @@ function rotateCanvas(source: HTMLCanvasElement, degrees: number): HTMLCanvasEle
   return out;
 }
 
+/**
+ * Enhances a cropped shipping label for Tesseract LSTM:
+ * - Upscales small mobile crops so characters are ~300 DPI equivalent
+ * - Percentile auto-levels (3%..97%) so shadows/warm warehouse light become crisp black-on-white
+ * - Gentle 3x3 unsharp mask to counteract mobile lens softness
+ */
 function createEnhancedOcrCanvas(source: HTMLCanvasElement): HTMLCanvasElement {
   const maxDim = Math.max(source.width, source.height);
   let scale = 1;
-  if (maxDim > 1800) {
-    scale = 1800 / maxDim;
-  } else if (maxDim < 950) {
-    scale = Math.min(2.2, 1400 / Math.max(1, maxDim));
+  if (maxDim > 1850) {
+    scale = 1850 / maxDim;
+  } else if (maxDim < 1200) {
+    scale = Math.min(2.4, 1500 / Math.max(1, maxDim));
   }
 
   const innerW = Math.max(1, Math.round(source.width * scale));
   const innerH = Math.max(1, Math.round(source.height * scale));
-  const pad = 18;
+  const pad = 20;
 
   const canvas = document.createElement('canvas');
   canvas.width = innerW + pad * 2;
@@ -265,15 +415,17 @@ function createEnhancedOcrCanvas(source: HTMLCanvasElement): HTMLCanvasElement {
   const imgData = ctx.getImageData(pad, pad, innerW, innerH);
   const { data } = imgData;
   const pixelCount = innerW * innerH;
+  const gray = new Uint8Array(pixelCount);
   const hist = new Uint32Array(256);
 
-  for (let i = 0; i < data.length; i += 4) {
-    const lum = (data[i] * 77 + data[i + 1] * 150 + data[i + 2] * 29) >> 8;
+  for (let i = 0, p = 0; i < pixelCount; i++, p += 4) {
+    const lum = (data[p] * 77 + data[p + 1] * 150 + data[p + 2] * 29) >> 8;
+    gray[i] = lum;
     hist[lum]++;
   }
 
-  const lowTarget = Math.floor(pixelCount * 0.02);
-  const highTarget = Math.floor(pixelCount * 0.98);
+  const lowTarget = Math.floor(pixelCount * 0.03);
+  const highTarget = Math.floor(pixelCount * 0.96);
   let cumulative = 0;
   let low = 0;
   let high = 255;
@@ -295,20 +447,46 @@ function createEnhancedOcrCanvas(source: HTMLCanvasElement): HTMLCanvasElement {
     }
   }
 
-  const range = Math.max(45, high - low);
-  for (let i = 0; i < data.length; i += 4) {
-    const lum = (data[i] * 77 + data[i + 1] * 150 + data[i + 2] * 29) >> 8;
-    const stretched = Math.max(0, Math.min(255, Math.round(((lum - low) * 255) / range)));
-    data[i] = stretched;
-    data[i + 1] = stretched;
-    data[i + 2] = stretched;
+  const range = Math.max(42, high - low);
+  const leveled = new Uint8Array(pixelCount);
+  for (let i = 0; i < pixelCount; i++) {
+    const stretched = Math.round(((gray[i] - low) * 255) / range);
+    leveled[i] = stretched < 0 ? 0 : stretched > 255 ? 255 : stretched;
+  }
+
+  // Mild 3x3 unsharp mask to sharpen characters on phone camera crops
+  for (let y = 0; y < innerH; y++) {
+    const row = y * innerW;
+    for (let x = 0; x < innerW; x++) {
+      const idx = row + x;
+      let val = leveled[idx];
+      if (x > 0 && x < innerW - 1 && y > 0 && y < innerH - 1) {
+        const blur =
+          (leveled[idx - 1] +
+            leveled[idx + 1] +
+            leveled[idx - innerW] +
+            leveled[idx + innerW]) >>
+          2;
+        const sharpened = val + ((val - blur) * 3 >> 2);
+        val = sharpened < 0 ? 0 : sharpened > 255 ? 255 : sharpened;
+      }
+      const p = idx * 4;
+      data[p] = val;
+      data[p + 1] = val;
+      data[p + 2] = val;
+    }
   }
 
   ctx.putImageData(imgData, pad, pad);
   return canvas;
 }
 
-async function detectBarcodesInCanvas(canvas: HTMLCanvasElement): Promise<DetectedBarcodeRead[]> {
+async function detectBarcodesSingleCanvas(
+  canvas: HTMLCanvasElement,
+  binarizer: 'LocalAverage' | 'GlobalHistogram' = 'LocalAverage',
+  offsetX = 0,
+  offsetY = 0
+): Promise<DetectedBarcodeRead[]> {
   ensureZXingReaderConfigured();
   const results: DetectedBarcodeRead[] = [];
 
@@ -321,6 +499,8 @@ async function detectBarcodesInCanvas(canvas: HTMLCanvasElement): Promise<Detect
         tryRotate: true,
         tryInvert: true,
         tryDownscale: true,
+        tryDenoise: true,
+        binarizer,
         textMode: 'Plain',
         formats: ['All'],
         maxNumberOfSymbols: 12,
@@ -340,10 +520,10 @@ async function detectBarcodesInCanvas(canvas: HTMLCanvasElement): Promise<Detect
           hit.position.bottomLeft.y,
           hit.position.bottomRight.y,
         ];
-        const minX = Math.min(...xs);
-        const maxX = Math.max(...xs);
-        const minY = Math.min(...ys);
-        const maxY = Math.max(...ys);
+        const minX = Math.min(...xs) + offsetX;
+        const maxX = Math.max(...xs) + offsetX;
+        const minY = Math.min(...ys) + offsetY;
+        const maxY = Math.max(...ys) + offsetY;
 
         results.push({
           text: hit.text.trim(),
@@ -358,12 +538,12 @@ async function detectBarcodesInCanvas(canvas: HTMLCanvasElement): Promise<Detect
         });
       }
     } catch {
-      // Continue to native BarcodeDetector fallback if WASM encounters an edge case
+      // Fallback below
     }
   }
 
   const nativeDetector = getNativeBarcodeDetector();
-  if (nativeDetector) {
+  if (nativeDetector && binarizer === 'LocalAverage') {
     try {
       const nativeHits = await nativeDetector.detect(canvas);
       for (const hit of nativeHits) {
@@ -373,8 +553,8 @@ async function detectBarcodesInCanvas(canvas: HTMLCanvasElement): Promise<Detect
           format: hit.format || 'Barcode',
           position: hit.boundingBox
             ? {
-                x: hit.boundingBox.x,
-                y: hit.boundingBox.y,
+                x: hit.boundingBox.x + offsetX,
+                y: hit.boundingBox.y + offsetY,
                 width: Math.max(1, hit.boundingBox.width),
                 height: Math.max(1, hit.boundingBox.height),
               }
@@ -389,7 +569,48 @@ async function detectBarcodesInCanvas(canvas: HTMLCanvasElement): Promise<Detect
   return results;
 }
 
-function extractOcrLines(page: Tesseract.Page): OcrLineBox[] {
+/**
+ * Multi-scale barcode detection:
+ * 1) Scans the cropped bright label card first (highest pixel density per bar)
+ * 2) Scans the full reticle/frame if needed
+ * 3) Retries with GlobalHistogram binarizer if lighting/glare hid 1D bars
+ */
+export async function detectBarcodesMultiScale(
+  fullCanvas: HTMLCanvasElement,
+  preCropped?: { canvas: HTMLCanvasElement; offsetX: number; offsetY: number; wasCropped: boolean }
+): Promise<DetectedBarcodeRead[]> {
+  const cropInfo = preCropped ?? cropToBrightLabelRegion(fullCanvas);
+  const allReads: DetectedBarcodeRead[] = [];
+
+  if (cropInfo.wasCropped) {
+    const croppedHits = await detectBarcodesSingleCanvas(
+      cropInfo.canvas,
+      'LocalAverage',
+      cropInfo.offsetX,
+      cropInfo.offsetY
+    );
+    allReads.push(...croppedHits);
+  }
+
+  const fullHits = await detectBarcodesSingleCanvas(fullCanvas, 'LocalAverage', 0, 0);
+  allReads.push(...fullHits);
+
+  if (allReads.length === 0) {
+    const target = cropInfo.wasCropped ? cropInfo.canvas : fullCanvas;
+    const ox = cropInfo.wasCropped ? cropInfo.offsetX : 0;
+    const oy = cropInfo.wasCropped ? cropInfo.offsetY : 0;
+    const globalHits = await detectBarcodesSingleCanvas(target, 'GlobalHistogram', ox, oy);
+    allReads.push(...globalHits);
+  }
+
+  return allReads;
+}
+
+function extractCleanOcrLines(
+  page: Tesseract.Page,
+  offsetX = 0,
+  offsetY = 0
+): OcrLineBox[] {
   const lines: OcrLineBox[] = [];
   if (!page.blocks) return lines;
 
@@ -398,10 +619,20 @@ function extractOcrLines(page: Tesseract.Page): OcrLineBox[] {
       for (const line of para.lines ?? []) {
         const text = (line.text ?? '').trim();
         if (!text) continue;
+        if (typeof line.confidence === 'number' && line.confidence < 36) continue;
+        if (isBarcodeStripeOrNoiseText(text)) continue;
+
         lines.push({
           text,
           confidence: line.confidence,
-          bbox: line.bbox,
+          bbox: line.bbox
+            ? {
+                x0: line.bbox.x0 + offsetX,
+                y0: line.bbox.y0 + offsetY,
+                x1: line.bbox.x1 + offsetX,
+                y1: line.bbox.y1 + offsetY,
+              }
+            : undefined,
         });
       }
     }
@@ -411,7 +642,9 @@ function extractOcrLines(page: Tesseract.Page): OcrLineBox[] {
 
 async function recognizeCanvasOcr(
   worker: Tesseract.Worker,
-  canvas: HTMLCanvasElement
+  canvas: HTMLCanvasElement,
+  offsetX = 0,
+  offsetY = 0
 ): Promise<{ text: string; confidence: number; lines: OcrLineBox[] }> {
   const enhanced = createEnhancedOcrCanvas(canvas);
   const { data } = await worker.recognize(
@@ -422,10 +655,12 @@ async function recognizeCanvasOcr(
       blocks: true,
     }
   );
+  const lines = extractCleanOcrLines(data, offsetX, offsetY);
+  const cleanText = lines.length > 0 ? lines.map((l) => l.text).join('\n') : data.text ?? '';
   return {
-    text: data.text ?? '',
+    text: cleanText,
     confidence: typeof data.confidence === 'number' ? data.confidence : 0,
-    lines: extractOcrLines(data),
+    lines,
   };
 }
 
@@ -437,9 +672,17 @@ async function analyzeSingleCanvasFrame(
   timestampSec?: number,
   hint?: string
 ): Promise<RawDetectedPackage[]> {
-  const barcodes = await detectBarcodesInCanvas(canvas);
-  const ocr = await recognizeCanvasOcr(worker, canvas);
+  const cropInfo = cropToBrightLabelRegion(canvas);
+  const barcodes = await detectBarcodesMultiScale(canvas, cropInfo);
 
+  // Run OCR primarily on the cropped label region so background clutter is excluded!
+  const targetOcrCanvas = cropInfo.wasCropped ? cropInfo.canvas : canvas;
+  const ox = cropInfo.wasCropped ? cropInfo.offsetX : 0;
+  const oy = cropInfo.wasCropped ? cropInfo.offsetY : 0;
+
+  let ocr = await recognizeCanvasOcr(worker, targetOcrCanvas, ox, oy);
+
+  // If the bright-crop missed header text outside the bright box, also check full canvas when needed
   let packages = parseLabelFrame({
     frameIndex,
     timestampSec,
@@ -451,19 +694,42 @@ async function analyzeSingleCanvasFrame(
     hint,
   });
 
-  // If upright OCR found no reference code (or no customer) and a barcode was sideways (90/180/270 deg),
-  // rotate upright and re-read text so sideways phone photos still extract full customer + Del/Rem details.
+  if (
+    cropInfo.wasCropped &&
+    (packages.length === 0 || packages.every((p) => p.customer === 'Okänd kund'))
+  ) {
+    const fullOcr = await recognizeCanvasOcr(worker, canvas, 0, 0);
+    const fullPackages = parseLabelFrame({
+      frameIndex,
+      timestampSec,
+      sourceKind,
+      barcodes,
+      ocrText: `${ocr.text}\n${fullOcr.text}`,
+      ocrConfidence: Math.max(ocr.confidence, fullOcr.confidence),
+      ocrLines: [...ocr.lines, ...fullOcr.lines],
+      hint,
+    });
+    if (
+      fullPackages.length > packages.length ||
+      fullPackages.some((p) => p.customer && p.customer !== 'Okänd kund')
+    ) {
+      packages = fullPackages;
+      ocr = fullOcr;
+    }
+  }
+
+  // Sideways phone photo recovery (90 / 180 / 270 deg barcode rotation)
   const rotatedBarcode = barcodes.find(
     (b) => b.rotation === 90 || b.rotation === 180 || b.rotation === 270
   );
   const needsRotatedRetry =
     rotatedBarcode &&
     (packages.length === 0 ||
-      (packages.every((p) => p.customer === 'Okänd kund') && ocr.confidence < 55));
+      (packages.every((p) => p.customer === 'Okänd kund') && ocr.confidence < 58));
 
   if (needsRotatedRetry && rotatedBarcode?.rotation) {
-    const correctedCanvas = rotateCanvas(canvas, 360 - rotatedBarcode.rotation);
-    const rotatedOcr = await recognizeCanvasOcr(worker, correctedCanvas);
+    const correctedCanvas = rotateCanvas(targetOcrCanvas, 360 - rotatedBarcode.rotation);
+    const rotatedOcr = await recognizeCanvasOcr(worker, correctedCanvas, 0, 0);
     const rotatedPackages = parseLabelFrame({
       frameIndex,
       timestampSec,
@@ -485,6 +751,366 @@ async function analyzeSingleCanvasFrame(
   return packages;
 }
 
+/**
+ * Captures the exact visible reticle zone of a `<video class="object-cover">` element
+ * at 100% native camera sensor resolution (no wide-angle background waste!).
+ */
+export function captureVideoElementFrame(
+  videoEl: HTMLVideoElement,
+  timestampSec: number,
+  reticleFraction?: { widthRatio: number; heightRatio: number }
+): CapturedCameraFrame | null {
+  const vw = videoEl.videoWidth;
+  const vh = videoEl.videoHeight;
+  if (!vw || !vh) return null;
+
+  // Match CSS object-cover visible viewport if element has layout dimensions
+  let visX = 0;
+  let visY = 0;
+  let visW = vw;
+  let visH = vh;
+
+  const clientW = videoEl.clientWidth;
+  const clientH = videoEl.clientHeight;
+  if (clientW > 0 && clientH > 0) {
+    const videoAspect = vw / vh;
+    const clientAspect = clientW / clientH;
+    if (videoAspect > clientAspect) {
+      visW = Math.round(vh * clientAspect);
+      visX = Math.round((vw - visW) / 2);
+    } else {
+      visH = Math.round(vw / clientAspect);
+      visY = Math.round((vh - visH) / 2);
+    }
+  }
+
+  // Crop to guided label reticle if requested (e.g. center 88% x 76% of viewport)
+  if (reticleFraction) {
+    const rw = Math.round(visW * reticleFraction.widthRatio);
+    const rh = Math.round(visH * reticleFraction.heightRatio);
+    visX += Math.round((visW - rw) / 2);
+    visY += Math.round((visH - rh) / 2);
+    visW = Math.max(1, rw);
+    visH = Math.max(1, rh);
+  }
+
+  const maxTarget = 1800;
+  const scale = Math.min(1, maxTarget / Math.max(visW, visH));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(visW * scale));
+  canvas.height = Math.max(1, Math.round(visH * scale));
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return null;
+
+  ctx.drawImage(videoEl, visX, visY, visW, visH, 0, 0, canvas.width, canvas.height);
+  const { sharpness } = computeCanvasSharpness(canvas);
+  const labelCrop = cropToBrightLabelRegion(canvas);
+
+  return {
+    canvas,
+    labelCanvas: labelCrop.wasCropped ? labelCrop.canvas : undefined,
+    timestampSec,
+    sharpness,
+  };
+}
+
+/**
+ * Real-time live camera tracker:
+ * - Immediately locks onto barcodes (~35ms) and upgrades them with OCR customer/type/Del-Rem on steady frames
+ * - Prevents duplicate counting while hovering on the same label
+ * - Fires `onPackageConfirmed` for each distinct label so the mobile camera UI flashes green + vibrates + shows live chips!
+ */
+export class LiveCameraScannerSession {
+  private entries: LiveScannedEntry[] = [];
+  private activeEntryUidByKey = new Map<string, string>();
+  private lastSeenSecByKey = new Map<string, number>();
+  private emptyTicksSinceLastHit = 0;
+  private prevSignature: Uint8Array | null = null;
+  private tickCounter = 0;
+
+  private getIdentityKeys(pkg: RawDetectedPackage): string[] {
+    const keys: string[] = [];
+    if (pkg.referenceNumber) {
+      const rk = normalizeComparisonKey(pkg.referenceNumber);
+      if (rk) keys.push(rk);
+    }
+    if (pkg.barcode) {
+      const bk = normalizeComparisonKey(pkg.barcode);
+      if (bk && !keys.includes(bk)) keys.push(bk);
+    }
+    return keys;
+  }
+
+  public getEntries(): LiveScannedEntry[] {
+    return [...this.entries];
+  }
+
+  public removeEntry(uid: string): LiveScannedEntry[] {
+    this.entries = this.entries.filter((e) => e.uid !== uid);
+    for (const [k, v] of this.activeEntryUidByKey.entries()) {
+      if (v === uid) this.activeEntryUidByKey.delete(k);
+    }
+    return this.getEntries();
+  }
+
+  public incrementEntryQuantity(uid: string): LiveScannedEntry[] {
+    this.entries = this.entries.map((e) =>
+      e.uid === uid
+        ? {
+            ...e,
+            pkg: {
+              ...e.pkg,
+              quantity: Math.max(1, e.pkg.quantity ?? 1) + 1,
+            },
+          }
+        : e
+    );
+    return this.getEntries();
+  }
+
+  public ingestDetectedPackages(
+    packages: RawDetectedPackage[],
+    elapsedSec: number
+  ): {
+    newlyLocked: LiveScannedEntry[];
+    updated: boolean;
+    entries: LiveScannedEntry[];
+  } {
+    if (packages.length === 0) {
+      this.emptyTicksSinceLastHit++;
+      // Once camera has seen >= 4 consecutive empty ticks (~1.6s of pointing away from any label),
+      // clear active dwell locks so a second identical box can be scanned next!
+      if (this.emptyTicksSinceLastHit >= 4) {
+        this.activeEntryUidByKey.clear();
+      }
+      return { newlyLocked: [], updated: false, entries: this.getEntries() };
+    }
+
+    this.emptyTicksSinceLastHit = 0;
+    const newlyLocked: LiveScannedEntry[] = [];
+    let updated = false;
+    const seenUidsThisTick = new Set<string>();
+
+    for (const pkg of packages) {
+      const keys = this.getIdentityKeys(pkg);
+      if (keys.length === 0) continue;
+
+      let matchedUid: string | undefined;
+      for (const k of keys) {
+        const uid = this.activeEntryUidByKey.get(k);
+        if (uid) {
+          matchedUid = uid;
+          break;
+        }
+      }
+
+      // Also check recently locked entries within the last 3.2s if no different package was scanned after it
+      if (!matchedUid && this.entries.length > 0) {
+        const latestEntry = this.entries[this.entries.length - 1];
+        const latestKeys = this.getIdentityKeys(latestEntry.pkg);
+        const sharesKey = keys.some((k) => latestKeys.includes(k));
+        if (sharesKey && elapsedSec - latestEntry.lastSeenSec < 3.2) {
+          matchedUid = latestEntry.uid;
+        }
+      }
+
+      if (matchedUid) {
+        const idx = this.entries.findIndex((e) => e.uid === matchedUid);
+        if (idx >= 0) {
+          const prev = this.entries[idx];
+          const mergedPkg = mergePackageSightingDetails(prev.pkg, pkg);
+          const changed =
+            mergedPkg.customer !== prev.pkg.customer ||
+            mergedPkg.referenceNumber !== prev.pkg.referenceNumber ||
+            mergedPkg.type !== prev.pkg.type ||
+            mergedPkg.barcode !== prev.pkg.barcode;
+
+          this.entries[idx] = {
+            ...prev,
+            pkg: {
+              ...mergedPkg,
+              quantity: Math.max(prev.pkg.quantity ?? 1, pkg.quantity ?? 1),
+            },
+            lastSeenSec: elapsedSec,
+          };
+
+          for (const k of this.getIdentityKeys(mergedPkg)) {
+            this.activeEntryUidByKey.set(k, matchedUid);
+            this.lastSeenSecByKey.set(k, elapsedSec);
+          }
+
+          seenUidsThisTick.add(matchedUid);
+          if (changed) updated = true;
+          continue;
+        }
+      }
+
+      // Brand-new physical package label!
+      const uid = `live-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
+      const freshEntry: LiveScannedEntry = {
+        uid,
+        pkg: {
+          ...pkg,
+          quantity: Math.max(1, pkg.quantity ?? 1),
+          timestamp: formatTimestampSec(elapsedSec),
+        },
+        firstSeenSec: elapsedSec,
+        lastSeenSec: elapsedSec,
+      };
+
+      // Seeing a different package unlocks dwell lock on earlier packages (allowing Box A -> Box B -> Box A2)
+      for (const [k, activeUid] of this.activeEntryUidByKey.entries()) {
+        if (!seenUidsThisTick.has(activeUid)) {
+          this.activeEntryUidByKey.delete(k);
+        }
+      }
+
+      this.entries.push(freshEntry);
+      for (const k of keys) {
+        this.activeEntryUidByKey.set(k, uid);
+        this.lastSeenSecByKey.set(k, elapsedSec);
+      }
+      seenUidsThisTick.add(uid);
+      newlyLocked.push(freshEntry);
+      updated = true;
+    }
+
+    return {
+      newlyLocked,
+      updated,
+      entries: this.getEntries(),
+    };
+  }
+
+  /**
+   * Processes a live camera frame:
+   * 1) Always runs ultra-fast multi-scale barcode detection (~35ms)
+   * 2) Runs cropped label OCR when camera is steady (not mid-pan) and worker is free
+   */
+  public async processLiveVideoFrame(
+    videoEl: HTMLVideoElement,
+    elapsedSec: number,
+    hint?: string
+  ): Promise<{
+    newlyLocked: LiveScannedEntry[];
+    updated: boolean;
+    entries: LiveScannedEntry[];
+    motionState: 'panning' | 'steady' | 'reading-ocr';
+  }> {
+    this.tickCounter++;
+    const captured = captureVideoElementFrame(videoEl, elapsedSec, {
+      widthRatio: 0.9,
+      heightRatio: 0.78,
+    });
+    if (!captured) {
+      return {
+        newlyLocked: [],
+        updated: false,
+        entries: this.getEntries(),
+        motionState: 'steady',
+      };
+    }
+
+    const { sharpness, signature } = computeCanvasSharpness(captured.canvas);
+    const motionDiff = this.prevSignature
+      ? signatureMeanDiff(this.prevSignature, signature)
+      : 0;
+    this.prevSignature = signature;
+
+    const cropInfo = cropToBrightLabelRegion(captured.canvas);
+
+    // Step 1: Fast barcode check works even with slight hand movement!
+    const barcodes = await detectBarcodesMultiScale(captured.canvas, cropInfo);
+
+    const isSteady = motionDiff < 15 && sharpness >= 4.5;
+
+    // Step 2: If steady (or barcode found!) and OCR worker is idle, run targeted label OCR
+    if ((isSteady || barcodes.length > 0) && !ocrWorkerBusy) {
+      ocrWorkerBusy = true;
+      try {
+        const worker = await getLocalOcrWorker();
+        const targetOcrCanvas = cropInfo.wasCropped ? cropInfo.canvas : captured.canvas;
+        const ox = cropInfo.wasCropped ? cropInfo.offsetX : 0;
+        const oy = cropInfo.wasCropped ? cropInfo.offsetY : 0;
+
+        const ocr = await recognizeCanvasOcr(worker, targetOcrCanvas, ox, oy);
+        const detected = parseLabelFrame({
+          frameIndex: this.tickCounter,
+          timestampSec: elapsedSec,
+          sourceKind: 'video-frame',
+          barcodes,
+          ocrText: ocr.text,
+          ocrConfidence: ocr.confidence,
+          ocrLines: ocr.lines,
+          hint,
+        });
+
+        const res = this.ingestDetectedPackages(detected, elapsedSec);
+        return {
+          ...res,
+          motionState: 'reading-ocr',
+        };
+      } finally {
+        ocrWorkerBusy = false;
+      }
+    }
+
+    // Even if OCR worker was busy on previous frame, lock in any checksum-verified barcode immediately!
+    if (barcodes.length > 0) {
+      const quickPackages = parseLabelFrame({
+        frameIndex: this.tickCounter,
+        timestampSec: elapsedSec,
+        sourceKind: 'video-frame',
+        barcodes,
+        ocrText: '',
+        ocrConfidence: 0,
+        hint,
+      });
+      const res = this.ingestDetectedPackages(quickPackages, elapsedSec);
+      return {
+        ...res,
+        motionState: isSteady ? 'steady' : 'panning',
+      };
+    }
+
+    if (!isSteady) {
+      return {
+        newlyLocked: [],
+        updated: false,
+        entries: this.getEntries(),
+        motionState: 'panning',
+      };
+    }
+
+    this.ingestDetectedPackages([], elapsedSec);
+    return {
+      newlyLocked: [],
+      updated: false,
+      entries: this.getEntries(),
+      motionState: 'steady',
+    };
+  }
+
+  public buildFinalScanResult(): LocalScanResult {
+    const rawPackages = this.entries.map((e) => e.pkg);
+    const items = mergeInventoryItems([], rawPackages);
+    const reviewCount = items.filter((i) => i.needsReview).length;
+    const summaryNote =
+      `Avläst direkt i kameran (${this.entries.length} etikett${
+        this.entries.length === 1 ? '' : 'er'
+      }) helt lokalt utan API.` +
+      (reviewCount > 0
+        ? ` Kontrollera ${reviewCount} rad${reviewCount > 1 ? 'er' : ''} markerad med "Kontrollera".`
+        : '');
+
+    return {
+      items,
+      rawPackages,
+      summaryNote,
+    };
+  }
+}
+
 async function loadImageFileToCanvas(file: File): Promise<HTMLCanvasElement> {
   if (typeof createImageBitmap === 'function') {
     try {
@@ -501,7 +1127,7 @@ async function loadImageFileToCanvas(file: File): Promise<HTMLCanvasElement> {
         return canvas;
       }
     } catch {
-      // Fallback to HTMLImageElement below
+      // Fallback below
     }
   }
 
@@ -581,11 +1207,13 @@ async function extractFramesFromVideoFile(
       };
     });
 
-    // Resolve Chrome MediaRecorder WebM Infinity duration quirk
     let duration = video.duration;
     if (!Number.isFinite(duration) || duration <= 0) {
       await seekVideoTo(video, 1e8);
-      duration = Number.isFinite(video.duration) && video.duration > 0 ? video.duration : video.currentTime;
+      duration =
+        Number.isFinite(video.duration) && video.duration > 0
+          ? video.duration
+          : video.currentTime;
       await seekVideoTo(video, 0);
     }
 
@@ -593,10 +1221,11 @@ async function extractFramesFromVideoFile(
       duration = 2.0;
     }
 
-    const maxSamples = 24;
-    const stepSec = Math.max(0.75, duration / maxSamples);
+    // Denser frame sampling (every 0.45s, up to 36 samples) so quick sweeps over 3+ labels never skip a label
+    const maxSamples = 36;
+    const stepSec = Math.max(0.45, duration / maxSamples);
     const sampleTimes: number[] = [];
-    for (let t = Math.min(0.2, duration * 0.1); t < duration; t += stepSec) {
+    for (let t = Math.min(0.15, duration * 0.08); t < duration; t += stepSec) {
       sampleTimes.push(Number(t.toFixed(2)));
     }
     if (sampleTimes.length === 0) {
@@ -625,7 +1254,7 @@ async function extractFramesFromVideoFile(
       const vh = video.videoHeight;
       if (!vw || !vh) continue;
 
-      const scale = Math.min(1, 1600 / Math.max(vw, vh));
+      const scale = Math.min(1, 1800 / Math.max(vw, vh));
       const canvas = document.createElement('canvas');
       canvas.width = Math.max(1, Math.round(vw * scale));
       canvas.height = Math.max(1, Math.round(vh * scale));
@@ -642,7 +1271,7 @@ async function extractFramesFromVideoFile(
       });
     }
 
-    if (rawCandidates.length <= 2) {
+    if (rawCandidates.length <= 3) {
       return rawCandidates.map(({ canvas, timestampSec, signature }) => ({
         canvas,
         timestampSec,
@@ -650,10 +1279,10 @@ async function extractFramesFromVideoFile(
       }));
     }
 
-    // Filter out heavily motion-blurred pan frames (below 45% of median sharpness)
+    // Keep all reasonably sharp frames (only drop severe motion blur below 38% of median)
     const sortedSharp = [...rawCandidates].map((c) => c.sharpness).sort((a, b) => a - b);
     const medianSharpness = sortedSharp[Math.floor(sortedSharp.length / 2)] || 1;
-    const minAcceptableSharpness = medianSharpness * 0.45;
+    const minAcceptableSharpness = medianSharpness * 0.38;
 
     const filtered = rawCandidates.filter((c) => c.sharpness >= minAcceptableSharpness);
     return (filtered.length > 0 ? filtered : rawCandidates).map(
@@ -669,30 +1298,6 @@ async function extractFramesFromVideoFile(
     video.load();
     URL.revokeObjectURL(url);
   }
-}
-
-export function captureVideoElementFrame(
-  videoEl: HTMLVideoElement,
-  timestampSec: number
-): CapturedCameraFrame | null {
-  const vw = videoEl.videoWidth;
-  const vh = videoEl.videoHeight;
-  if (!vw || !vh) return null;
-
-  const scale = Math.min(1, 1600 / Math.max(vw, vh));
-  const canvas = document.createElement('canvas');
-  canvas.width = Math.max(1, Math.round(vw * scale));
-  canvas.height = Math.max(1, Math.round(vh * scale));
-  const ctx = canvas.getContext('2d');
-  if (!ctx) return null;
-
-  ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
-  const { sharpness } = computeCanvasSharpness(canvas);
-  return {
-    canvas,
-    timestampSec,
-    sharpness,
-  };
 }
 
 function buildSummaryNote(
@@ -735,38 +1340,26 @@ export async function scanCapturedCameraFramesLocally(
     });
   });
 
-  // Filter out severe motion blur if multiple frames exist
-  let candidates = frames;
-  if (frames.length > 3) {
-    const sorted = [...frames].map((f) => f.sharpness).sort((a, b) => a - b);
-    const median = sorted[Math.floor(sorted.length / 2)] || 1;
-    const sharpEnough = frames.filter((f) => f.sharpness >= median * 0.45);
-    if (sharpEnough.length > 0) {
-      candidates = sharpEnough;
-    }
-  }
-
   const slices: VideoFrameDetectionSlice[] = [];
   let prevSignature: Uint8Array | null = null;
   let prevPackages: RawDetectedPackage[] = [];
   let runningFoundCount = 0;
 
-  for (let i = 0; i < candidates.length; i++) {
-    const frame = candidates[i];
+  for (let i = 0; i < frames.length; i++) {
+    const frame = frames[i];
     options?.onProgress?.({
       phase: 'scanning',
-      percent: Math.round(25 + ((i + 1) / candidates.length) * 70),
-      message: `Läser bildruta ${i + 1} av ${candidates.length}${
+      percent: Math.round(25 + ((i + 1) / frames.length) * 70),
+      message: `Läser bildruta ${i + 1} av ${frames.length}${
         runningFoundCount > 0 ? ` · ${runningFoundCount} fynd` : ''
       }...`,
       currentFrame: i + 1,
-      totalFrames: candidates.length,
+      totalFrames: frames.length,
       foundSoFar: runningFoundCount,
     });
 
     const { signature } = computeCanvasSharpness(frame.canvas);
-    // Reuse result if camera was held completely motionless since previous frame
-    if (prevSignature && signatureMeanDiff(prevSignature, signature) < 2.2) {
+    if (prevSignature && signatureMeanDiff(prevSignature, signature) < 1.8) {
       slices.push({
         frameIndex: i,
         timestampSec: frame.timestampSec,
@@ -801,15 +1394,13 @@ export async function scanCapturedCameraFramesLocally(
   }
 
   const rawPackages =
-    candidates.length === 1
-      ? slices[0]?.packages ?? []
-      : aggregateVideoFrameDetections(slices);
+    frames.length === 1 ? slices[0]?.packages ?? [] : aggregateVideoFrameDetections(slices);
 
   const items = mergeInventoryItems([], rawPackages);
   return {
     items,
     rawPackages,
-    summaryNote: buildSummaryNote(items, candidates.length, 'kamera'),
+    summaryNote: buildSummaryNote(items, frames.length, 'kamera'),
   };
 }
 
@@ -837,7 +1428,6 @@ export async function scanMediaFilesLocally(
     throw new Error('Endast video- (MP4, MOV, WebM) och bildfiler (JPG, PNG, WebP) stöds.');
   }
 
-  // Extract frames from any uploaded videos first
   const videoFramesByFile: Array<
     Array<{ canvas: HTMLCanvasElement; timestampSec: number; signature: Uint8Array }>
   > = [];
@@ -846,7 +1436,6 @@ export async function scanMediaFilesLocally(
     videoFramesByFile.push(extracted);
   }
 
-  // Load any uploaded still images
   const imageCanvases: HTMLCanvasElement[] = [];
   for (const imgFile of imageFiles) {
     const canvas = await loadImageFileToCanvas(imgFile);
@@ -877,13 +1466,12 @@ export async function scanMediaFilesLocally(
   const allRawPackages: RawDetectedPackage[] = [];
   let completedUnits = 0;
 
-  // 1. Scan uploaded still images (each image file is an independent photo)
   for (let i = 0; i < imageCanvases.length; i++) {
     completedUnits++;
     options?.onProgress?.({
       phase: 'scanning',
       percent: Math.round(30 + (completedUnits / totalUnits) * 66),
-      message: `Läser bild ${i + 1} av ${imageCanvases.length}...`,
+      message: `Beskär etikett & läser bild ${i + 1} av ${imageCanvases.length}...`,
       currentFrame: completedUnits,
       totalFrames: totalUnits,
       foundSoFar: allRawPackages.length,
@@ -900,7 +1488,6 @@ export async function scanMediaFilesLocally(
     allRawPackages.push(...detected);
   }
 
-  // 2. Scan extracted frames per video file with temporal deduplication
   for (const frames of videoFramesByFile) {
     const slices: VideoFrameDetectionSlice[] = [];
     let prevSignature: Uint8Array | null = null;
@@ -918,7 +1505,7 @@ export async function scanMediaFilesLocally(
         totalFrames: totalUnits,
       });
 
-      if (prevSignature && signatureMeanDiff(prevSignature, frame.signature) < 2.2) {
+      if (prevSignature && signatureMeanDiff(prevSignature, frame.signature) < 1.8) {
         slices.push({
           frameIndex: i,
           timestampSec: frame.timestampSec,
@@ -963,10 +1550,6 @@ export async function scanMediaFilesLocally(
   };
 }
 
-/**
- * Generates a realistic synthetic shipping label PNG image (with a real Code128 barcode + printed text)
- * so the user can test the 100% local ZXing + Tesseract OCR scanner on real pixels with one click.
- */
 export async function createSampleShippingLabelFile(variant = 0): Promise<File> {
   ensureZXingWriterConfigured();
 
@@ -1000,56 +1583,48 @@ export async function createSampleShippingLabelFile(variant = 0): Promise<File> 
   canvas.height = 620;
   const ctx = canvas.getContext('2d')!;
 
-  // White shipping label card on subtle cardboard background
-  ctx.fillStyle = '#e2e8f0';
+  ctx.fillStyle = '#a89478'; // Realistic brown cardboard surround to test label auto-crop!
   ctx.fillRect(0, 0, canvas.width, canvas.height);
 
   ctx.fillStyle = '#ffffff';
-  ctx.fillRect(36, 32, 848, 556);
+  ctx.fillRect(90, 62, 740, 496);
   ctx.strokeStyle = '#0f172a';
   ctx.lineWidth = 4;
-  ctx.strokeRect(36, 32, 848, 556);
+  ctx.strokeRect(90, 62, 740, 496);
 
-  // Header divider
   ctx.beginPath();
-  ctx.moveTo(36, 150);
-  ctx.lineTo(884, 150);
+  ctx.moveTo(90, 170);
+  ctx.lineTo(830, 170);
   ctx.lineWidth = 3;
   ctx.stroke();
 
-  // Customer Name
   ctx.fillStyle = '#0f172a';
-  ctx.font = 'bold 46px Arial, sans-serif';
-  ctx.fillText(`Kund: ${sample.customer}`, 66, 108);
+  ctx.font = 'bold 42px Arial, sans-serif';
+  ctx.fillText(`Kund: ${sample.customer}`, 118, 132);
 
-  // Type Badge
   ctx.fillStyle = '#0f172a';
-  ctx.fillRect(620, 58, 234, 68);
+  ctx.fillRect(580, 86, 224, 62);
   ctx.fillStyle = '#ffffff';
-  ctx.font = 'bold 34px Arial, sans-serif';
+  ctx.font = 'bold 30px Arial, sans-serif';
   ctx.textAlign = 'center';
-  ctx.fillText(sample.type, 737, 104);
+  ctx.fillText(sample.type, 692, 128);
   ctx.textAlign = 'left';
 
-  // Destination metadata
   ctx.fillStyle = '#334155';
-  ctx.font = '24px Arial, sans-serif';
-  ctx.fillText(`Mottagare: ${sample.dest}`, 66, 205);
+  ctx.font = '22px Arial, sans-serif';
+  ctx.fillText(`Mottagare: ${sample.dest}`, 118, 220);
 
-  // Prominent Del / Rem Reference Number
   ctx.fillStyle = '#0f172a';
-  ctx.font = 'bold 54px monospace';
-  ctx.fillText(sample.ref, 66, 295);
+  ctx.font = 'bold 50px monospace';
+  ctx.fillText(sample.ref, 118, 302);
 
-  // Divider before barcode
   ctx.beginPath();
-  ctx.moveTo(66, 335);
-  ctx.lineTo(854, 335);
+  ctx.moveTo(118, 336);
+  ctx.lineTo(802, 336);
   ctx.strokeStyle = '#cbd5e1';
   ctx.lineWidth = 2;
   ctx.stroke();
 
-  // Real Code128 barcode rendered via zxing-wasm/writer
   try {
     const written = await writeBarcode(sample.barcode, {
       format: 'Code128',
@@ -1058,7 +1633,7 @@ export async function createSampleShippingLabelFile(variant = 0): Promise<File> 
     });
     if (written.image) {
       const bmp = await createImageBitmap(written.image);
-      ctx.drawImage(bmp, 150, 365, 620, 130);
+      ctx.drawImage(bmp, 170, 360, 580, 122);
       bmp.close();
     } else if (written.symbol?.data && written.symbol.width > 0 && written.symbol.height > 0) {
       const { data: gray, width: sw, height: sh } = written.symbol;
@@ -1077,22 +1652,25 @@ export async function createSampleShippingLabelFile(variant = 0): Promise<File> 
         }
         barCtx.putImageData(imgData, 0, 0);
         ctx.imageSmoothingEnabled = false;
-        ctx.drawImage(barCanvas, 150, 365, 620, 130);
+        ctx.drawImage(barCanvas, 170, 360, 580, 122);
         ctx.imageSmoothingEnabled = true;
       }
     }
   } catch {
-    // Even if barcode writer fails, human-readable text below is still drawn
+    // Fallback text below
   }
 
   ctx.fillStyle = '#0f172a';
-  ctx.font = 'bold 30px monospace';
+  ctx.font = 'bold 28px monospace';
   ctx.textAlign = 'center';
-  ctx.fillText(sample.barcode, 460, 540);
+  ctx.fillText(sample.barcode, 460, 526);
   ctx.textAlign = 'left';
 
   const blob = await new Promise<Blob>((resolve, reject) => {
-    canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('Kunde inte skapa testetikett'))), 'image/png');
+    canvas.toBlob(
+      (b) => (b ? resolve(b) : reject(new Error('Kunde inte skapa testetikett'))),
+      'image/png'
+    );
   });
 
   return new File([blob], `testetikett-${sample.ref}.png`, { type: 'image/png' });
