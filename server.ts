@@ -181,7 +181,7 @@ export function injectQuery(url, queryToInject) {
 
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true, hmr: false, ws: false },
+      server: { middlewareMode: true, hmr: false, ws: false, allowedHosts: true as const },
       appType: 'spa',
     });
     app.use(vite.middlewares);
