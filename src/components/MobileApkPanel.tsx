@@ -34,10 +34,9 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '22'
-          cache: 'npm'
 
       - name: Install dependencies
-        run: npm ci
+        run: npm install --no-audit --no-fund
 
       - name: Build web bundle
         run: npm run build
@@ -87,15 +86,21 @@ export function MobileApkPanel() {
   const [repoSlug, setRepoSlug] = useState('nRn-World/DeliScan');
   const isNative = isNativeCapacitorApp();
 
+  const cleanRepoSlug = useMemo(() => {
+    const clean = repoSlug.trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\/+$/, '');
+    return clean.includes('/') ? clean : 'nRn-World/DeliScan';
+  }, [repoSlug]);
+
   const githubNewWorkflowUrl = useMemo(() => {
-    const cleanSlug = repoSlug.trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\/+$/, '');
-    const safeSlug = cleanSlug.includes('/') ? cleanSlug : 'nRn-World/DeliScan';
     const params = new URLSearchParams({
       filename: '.github/workflows/build-apk.yml',
       value: WORKFLOW_YAML,
     });
-    return `https://github.com/${safeSlug}/new/main?${params.toString()}`;
-  }, [repoSlug]);
+    return `https://github.com/${cleanRepoSlug}/new/main?${params.toString()}`;
+  }, [cleanRepoSlug]);
+
+  const githubActionsUrl = `https://github.com/${cleanRepoSlug}/actions`;
+  const githubReleasesUrl = `https://github.com/${cleanRepoSlug}/releases`;
 
   const handleCopyYaml = async () => {
     try {
@@ -250,6 +255,30 @@ export function MobileApkPanel() {
                 )}
                 <span>{copiedYaml ? 'Kopierad!' : 'Kopiera YAML'}</span>
               </button>
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
+              <a
+                href={githubActionsUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 font-medium text-sky-700 hover:text-sky-900 hover:underline"
+              >
+                <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>Öppna GitHub Actions</span>
+              </a>
+              <span aria-hidden="true" className="text-slate-300">
+                |
+              </span>
+              <a
+                href={githubReleasesUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1.5 font-medium text-sky-700 hover:text-sky-900 hover:underline"
+              >
+                <Download className="h-3.5 w-3.5" aria-hidden="true" />
+                <span>Öppna Releases (APK-nedladdning)</span>
+              </a>
             </div>
           </div>
 
