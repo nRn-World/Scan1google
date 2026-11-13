@@ -75,7 +75,7 @@ const UPPERCASE_ACRONYMS = new Set([
 
 export function normalizeCustomerName(raw?: string | null): string {
   const cleaned = (raw ?? '').replace(/\s+/g, ' ').trim();
-  if (!cleaned) return 'Okänd kund';
+  if (!cleaned || /^okänd\s+kund$/i.test(cleaned)) return 'Okänd kund';
 
   const words = cleaned.split(' ');
   const normalizedWords = words.map((word) => {

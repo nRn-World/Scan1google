@@ -277,12 +277,12 @@ export default function App() {
         {!isOnline && (
           <div
             role="status"
-            className="flex items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs font-medium text-amber-900"
+            className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs font-medium text-emerald-900"
           >
-            <WifiOff className="h-4 w-4 shrink-0 text-amber-700" aria-hidden="true" />
+            <WifiOff className="h-4 w-4 shrink-0 text-emerald-700" aria-hidden="true" />
             <span>
-              Offlineläge — dina sparade listor fungerar lokalt, men internet krävs för ny
-              videoavläsning.
+              Offlineläge aktivt — lokal streckkodsläsare, OCR och dina sparade Excel-listor
+              fungerar helt utan internet.
             </span>
           </div>
         )}

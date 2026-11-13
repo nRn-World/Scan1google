@@ -36,7 +36,7 @@ jobs:
           node-version: '22'
 
       - name: Install dependencies
-        run: npm install --no-audit --no-fund
+        run: npm install --legacy-peer-deps --no-audit --no-fund
 
       - name: Build web bundle
         run: npm run build
@@ -83,12 +83,12 @@ jobs:
 export function MobileApkPanel() {
   const { isInstallable, isInstalled, isIOS, install } = usePWAInstall();
   const [copiedYaml, setCopiedYaml] = useState(false);
-  const [repoSlug, setRepoSlug] = useState('nRn-World/DeliScan');
+  const [repoSlug, setRepoSlug] = useState('nRn-World/Scan2');
   const isNative = isNativeCapacitorApp();
 
   const cleanRepoSlug = useMemo(() => {
     const clean = repoSlug.trim().replace(/^https?:\/\/github\.com\//i, '').replace(/\/+$/, '');
-    return clean.includes('/') ? clean : 'nRn-World/DeliScan';
+    return clean.includes('/') ? clean : 'nRn-World/Scan2';
   }, [repoSlug]);
 
   const githubNewWorkflowUrl = useMemo(() => {
@@ -286,7 +286,7 @@ export function MobileApkPanel() {
             <span>Android-paket-ID: </span>
             <span className="font-mono font-medium text-slate-900">se.paketscan.app</span>
             <span aria-hidden="true"> · </span>
-            <span>Kamerabehörighet och serverkoppling är redan inbyggt</span>
+            <span>Lokal streckkodsläsare &amp; offline-OCR är inbyggt (inget API krävs)</span>
           </div>
         </div>
       </div>
