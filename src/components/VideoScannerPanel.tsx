@@ -1,24 +1,31 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Camera,
+  CheckCircle2,
   FileVideo,
+  Flashlight,
   Loader2,
   Play,
+  Plus,
   ScanLine,
   ShieldCheck,
   Sparkles,
   Square,
   Upload,
   Video,
+  X,
   AlertCircle,
 } from 'lucide-react';
 import type { RawDetectedPackage, InventoryItem } from '../utils/inventory';
 import {
   captureVideoElementFrame,
   createSampleShippingLabelFile,
+  LiveCameraScannerSession,
   scanCapturedCameraFramesLocally,
   scanMediaFilesLocally,
+  warmUpLocalScanner,
   type CapturedCameraFrame,
+  type LiveScannedEntry,
   type ScanProgress,
 } from '../utils/localScanner';
 
@@ -41,6 +48,40 @@ function formatDuration(seconds: number): string {
   return `${String(mins).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
 }
 
+function playConfirmationFeedback(): void {
+  try {
+    if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
+      navigator.vibrate(60);
+    }
+  } catch {
+    // Ignore vibration errors
+  }
+
+  try {
+    const AudioCtx =
+      window.AudioContext ||
+      (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(880, ctx.currentTime);
+    osc.frequency.setValueAtTime(1175, ctx.currentTime + 0.06);
+    gain.gain.setValueAtTime(0.08, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.16);
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.start();
+    osc.stop(ctx.currentTime + 0.17);
+    window.setTimeout(() => {
+      void ctx.close().catch(() => {});
+    }, 250);
+  } catch {
+    // Ignore audio context restrictions
+  }
+}
+
 export function VideoScannerPanel({
   appendMode,
   onToggleAppendMode,
@@ -51,34 +92,43 @@ export function VideoScannerPanel({
   const [cameraActive, setCameraActive] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recordingSeconds, setRecordingSeconds] = useState(0);
-  const [capturedFrameCount, setCapturedFrameCount] = useState(0);
+  const [liveEntries, setLiveEntries] = useState<LiveScannedEntry[]>([]);
+  const [liveMotionState, setLiveMotionState] = useState<'panning' | 'steady' | 'reading-ocr'>('steady');
+  const [flashConfirmedLabel, setFlashConfirmedLabel] = useState<string | null>(null);
+  const [torchSupported, setTorchSupported] = useState(false);
+  const [torchOn, setTorchOn] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [scanProgress, setScanProgress] = useState<ScanProgress | null>(null);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [hint, setHint] = useState('');
   const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
-  const [recordedPreviewUrl, setRecordedPreviewUrl] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
   const [sampleVariant, setSampleVariant] = useState(0);
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const chunksRef = useRef<Blob[]>([]);
-  const capturedFramesRef = useRef<CapturedCameraFrame[]>([]);
+  const liveSessionRef = useRef<LiveCameraScannerSession | null>(null);
+  const backupFramesRef = useRef<CapturedCameraFrame[]>([]);
   const recordingStartMsRef = useRef<number>(0);
+  const liveLoopActiveRef = useRef(false);
   const timerRef = useRef<number | null>(null);
-  const frameCaptureTimerRef = useRef<number | null>(null);
+  const flashTimerRef = useRef<number | null>(null);
+  const hintRef = useRef(hint);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
+  useEffect(() => {
+    hintRef.current = hint;
+  }, [hint]);
+
   const stopStream = () => {
+    liveLoopActiveRef.current = false;
     if (timerRef.current) {
       window.clearInterval(timerRef.current);
       timerRef.current = null;
     }
-    if (frameCaptureTimerRef.current) {
-      window.clearInterval(frameCaptureTimerRef.current);
-      frameCaptureTimerRef.current = null;
+    if (flashTimerRef.current) {
+      window.clearTimeout(flashTimerRef.current);
+      flashTimerRef.current = null;
     }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
@@ -89,22 +139,22 @@ export function VideoScannerPanel({
     }
     setCameraActive(false);
     setRecording(false);
+    setTorchSupported(false);
+    setTorchOn(false);
+    setFlashConfirmedLabel(null);
   };
 
   useEffect(() => {
     return () => {
       stopStream();
-      if (recordedPreviewUrl) {
-        URL.revokeObjectURL(recordedPreviewUrl);
-      }
     };
-  }, [recordedPreviewUrl]);
+  }, []);
 
   const startCamera = async () => {
     setErrorMsg(null);
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setErrorMsg(
-        'Webbläsaren saknar direkt kamerastöd här. Byt till fliken "Ladda upp video/bild" eller testa lokal skanner på exempeletikett.'
+        'Webbläsaren saknar direkt kamerastöd här (kräver HTTPS på mobil). Byt till "Ladda upp video/bild" eller testa på exempeletikett.'
       );
       return;
     }
@@ -113,22 +163,253 @@ export function VideoScannerPanel({
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
           facingMode: { ideal: 'environment' },
-          width: { ideal: 1920 },
-          height: { ideal: 1080 },
+          width: { ideal: 2560 },
+          height: { ideal: 1440 },
         },
         audio: false,
       });
+
+      const videoTrack = stream.getVideoTracks()[0];
+      if (videoTrack) {
+        try {
+          const caps = videoTrack.getCapabilities?.() as
+            | (MediaTrackCapabilities & { focusMode?: string[]; torch?: boolean })
+            | undefined;
+          if (caps?.torch) {
+            setTorchSupported(true);
+          }
+          if (caps?.focusMode?.includes('continuous')) {
+            await videoTrack.applyConstraints({
+              advanced: [{ focusMode: 'continuous' } as MediaTrackConstraintSet],
+            });
+          }
+        } catch {
+          // Ignore optional track constraint errors
+        }
+      }
+
       streamRef.current = stream;
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
       }
       setCameraActive(true);
+      setLiveEntries([]);
+      // Eagerly warm up WASM barcode reader + local Tesseract worker while user aims camera
+      void warmUpLocalScanner();
     } catch {
       setErrorMsg(
-        'Kunde inte starta kameran. Kontrollera kamerabehörighet i webbläsaren eller ladda upp en inspelad video/bild.'
+        'Kunde inte starta kameran. Kontrollera kamerabehörighet (och att sidan körs på https://) eller ladda upp video/foton.'
       );
     }
+  };
+
+  const toggleTorch = async () => {
+    const track = streamRef.current?.getVideoTracks()[0];
+    if (!track) return;
+    const next = !torchOn;
+    try {
+      await track.applyConstraints({
+        advanced: [{ torch: next } as MediaTrackConstraintSet],
+      });
+      setTorchOn(next);
+    } catch {
+      // Ignore if device rejects torch toggle
+    }
+  };
+
+  const triggerGreenFlash = (entry: LiveScannedEntry, totalCount: number) => {
+    playConfirmationFeedback();
+    const labelText = `✓ #${totalCount} läst: ${
+      entry.pkg.customer && entry.pkg.customer !== 'Okänd kund' ? `${entry.pkg.customer} · ` : ''
+    }${entry.pkg.referenceNumber || entry.pkg.barcode || 'Paket'}`;
+    setFlashConfirmedLabel(labelText);
+    if (flashTimerRef.current) {
+      window.clearTimeout(flashTimerRef.current);
+    }
+    flashTimerRef.current = window.setTimeout(() => {
+      setFlashConfirmedLabel(null);
+    }, 1500);
+  };
+
+  const startLiveRecordingScan = () => {
+    if (!streamRef.current || !videoRef.current) return;
+    setErrorMsg(null);
+    backupFramesRef.current = [];
+    const session = new LiveCameraScannerSession();
+    liveSessionRef.current = session;
+    setLiveEntries([]);
+    setRecordingSeconds(0);
+    recordingStartMsRef.current = Date.now();
+    setRecording(true);
+    liveLoopActiveRef.current = true;
+
+    timerRef.current = window.setInterval(() => {
+      setRecordingSeconds((prev) => prev + 1);
+    }, 1000);
+
+    const runLoop = async () => {
+      while (liveLoopActiveRef.current && videoRef.current) {
+        const elapsedSec = (Date.now() - recordingStartMsRef.current) / 1000;
+
+        // Keep sparse sharp backup frames in case user sweeps very fast
+        if (backupFramesRef.current.length < 24) {
+          const lastBackup = backupFramesRef.current[backupFramesRef.current.length - 1];
+          if (!lastBackup || elapsedSec - lastBackup.timestampSec >= 0.9) {
+            const snap = captureVideoElementFrame(videoRef.current, elapsedSec, {
+              widthRatio: 0.9,
+              heightRatio: 0.78,
+            });
+            if (snap) backupFramesRef.current.push(snap);
+          }
+        }
+
+        try {
+          const tickResult = await session.processLiveVideoFrame(
+            videoRef.current,
+            elapsedSec,
+            hintRef.current.trim() || undefined
+          );
+          if (!liveLoopActiveRef.current) break;
+
+          setLiveMotionState(tickResult.motionState);
+          if (tickResult.updated) {
+            setLiveEntries(tickResult.entries);
+          }
+          if (tickResult.newlyLocked.length > 0) {
+            const newest = tickResult.newlyLocked[tickResult.newlyLocked.length - 1];
+            triggerGreenFlash(newest, tickResult.entries.length);
+          }
+        } catch {
+          // Keep live loop resilient on transient frame errors
+        }
+
+        await new Promise((resolve) => window.setTimeout(resolve, 260));
+      }
+    };
+
+    void runLoop();
+  };
+
+  const stopRecordingAndSave = async () => {
+    liveLoopActiveRef.current = false;
+    const session = liveSessionRef.current;
+
+    // Capture one final crisp reticle frame right as user presses stop in case they were pointing at last label
+    let finalFrame: CapturedCameraFrame | null = null;
+    if (videoRef.current) {
+      const elapsedSec = (Date.now() - recordingStartMsRef.current) / 1000;
+      finalFrame = captureVideoElementFrame(videoRef.current, elapsedSec, {
+        widthRatio: 0.9,
+        heightRatio: 0.78,
+      });
+      if (session && videoRef.current) {
+        try {
+          await session.processLiveVideoFrame(
+            videoRef.current,
+            elapsedSec,
+            hintRef.current.trim() || undefined
+          );
+        } catch {
+          // Ignore
+        }
+      }
+    }
+
+    const backups = [...backupFramesRef.current];
+    if (finalFrame) backups.push(finalFrame);
+    backupFramesRef.current = [];
+    stopStream();
+
+    if (session && session.getEntries().length > 0) {
+      const result = session.buildFinalScanResult();
+      setLiveEntries([]);
+      onScanComplete(result.items, 'camera', result.summaryNote);
+      return;
+    }
+
+    // Fallback: if 0 labels locked in live (e.g. ultra-short clip), run deep pass on captured frames
+    if (backups.length > 0) {
+      setAnalyzing(true);
+      setErrorMsg(null);
+      setScanProgress({
+        phase: 'scanning',
+        percent: 20,
+        message: 'Djupanalyserar inspelade etikettrutor...',
+      });
+      try {
+        const deepResult = await scanCapturedCameraFramesLocally(backups, {
+          hint: hint.trim() || undefined,
+          onProgress: setScanProgress,
+        });
+        if (deepResult.items.length === 0) {
+          setErrorMsg(
+            'Inga tydliga etiketter kunde läsas av. Håll etiketten inom den markerade ramen tills den blinkar grönt innan du går till nästa paket.'
+          );
+          return;
+        }
+        onScanComplete(deepResult.items, 'camera', deepResult.summaryNote);
+      } catch (err) {
+        setErrorMsg(
+          err instanceof Error ? err.message : 'Ett fel uppstod vid kameraanalys.'
+        );
+      } finally {
+        setAnalyzing(false);
+        setScanProgress(null);
+      }
+    } else {
+      setErrorMsg('Inga etikettrutor fångades. Håll kameran mot varje etikett tills rutan blinkar grönt.');
+    }
+  };
+
+  const handleInstantSnapshotScan = async () => {
+    if (!videoRef.current || !cameraActive) return;
+    const snap = captureVideoElementFrame(videoRef.current, 0, {
+      widthRatio: 0.9,
+      heightRatio: 0.78,
+    });
+    if (!snap) {
+      setErrorMsg('Kameran är inte redo ännu — vänta ett ögonblick och försök igen.');
+      return;
+    }
+    stopStream();
+    setAnalyzing(true);
+    setErrorMsg(null);
+    setScanProgress({
+      phase: 'scanning',
+      percent: 25,
+      message: 'Beskär etikett och läser streckkod + text...',
+    });
+
+    try {
+      const result = await scanCapturedCameraFramesLocally([snap], {
+        hint: hint.trim() || undefined,
+        onProgress: setScanProgress,
+      });
+      if (result.items.length === 0) {
+        setErrorMsg(
+          'Hittade ingen tydlig streckkod eller referenstext på etiketten. Håll närmare inom etikettramen i bra ljus.'
+        );
+        return;
+      }
+      onScanComplete(result.items, 'camera', result.summaryNote);
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : 'Kunde inte analysera etikettbilden.');
+    } finally {
+      setAnalyzing(false);
+      setScanProgress(null);
+    }
+  };
+
+  const handleRemoveLiveEntry = (uid: string) => {
+    if (!liveSessionRef.current) return;
+    setLiveEntries(liveSessionRef.current.removeEntry(uid));
+  };
+
+  const handleIncrementLiveEntry = (uid: string) => {
+    if (!liveSessionRef.current) return;
+    playConfirmationFeedback();
+    setLiveEntries(liveSessionRef.current.incrementEntryQuantity(uid));
   };
 
   const analyzeFilesLocally = async (filesToScan: File[], source: 'camera' | 'upload') => {
@@ -148,7 +429,7 @@ export function VideoScannerPanel({
 
       if (result.items.length === 0) {
         setErrorMsg(
-          'Inga tydliga deliverynummer eller streckkoder hittades i bilden/videon. Försök hålla kameran närmare etiketten i bättre ljus.'
+          'Inga tydliga deliverynummer eller streckkoder hittades i bilden/videon. Försök fota närmare själva etiketten.'
         );
         return;
       }
@@ -161,165 +442,6 @@ export function VideoScannerPanel({
     } finally {
       setAnalyzing(false);
       setScanProgress(null);
-    }
-  };
-
-  const analyzeCapturedFrames = async (frames: CapturedCameraFrame[], fallbackVideoFile?: File) => {
-    if (frames.length === 0 && fallbackVideoFile) {
-      await analyzeFilesLocally([fallbackVideoFile], 'camera');
-      return;
-    }
-
-    setAnalyzing(true);
-    setErrorMsg(null);
-    setScanProgress({
-      phase: 'preparing',
-      percent: 8,
-      message: 'Analyserar kamerarutor lokalt på enheten...',
-    });
-
-    try {
-      const result = await scanCapturedCameraFramesLocally(frames, {
-        hint: hint.trim() || undefined,
-        onProgress: setScanProgress,
-      });
-
-      if (result.items.length === 0) {
-        setErrorMsg(
-          'Inga tydliga deliverynummer eller streckkoder hittades. Håll varje etikett stilla i 1–2 sekunder i bra ljus.'
-        );
-        return;
-      }
-
-      onScanComplete(result.items, 'camera', result.summaryNote);
-    } catch (err) {
-      setErrorMsg(
-        err instanceof Error ? err.message : 'Ett fel uppstod vid lokal kameraanalys.'
-      );
-    } finally {
-      setAnalyzing(false);
-      setScanProgress(null);
-    }
-  };
-
-  const handleInstantSnapshotScan = async () => {
-    if (!videoRef.current || !cameraActive) return;
-    const snap = captureVideoElementFrame(videoRef.current, 0);
-    if (!snap) {
-      setErrorMsg('Kameran är inte redo ännu — vänta ett ögonblick och försök igen.');
-      return;
-    }
-    stopStream();
-    await analyzeCapturedFrames([snap]);
-  };
-
-  const startRecording = () => {
-    if (!streamRef.current) return;
-    setErrorMsg(null);
-    chunksRef.current = [];
-    capturedFramesRef.current = [];
-    setCapturedFrameCount(0);
-    setRecordingSeconds(0);
-    recordingStartMsRef.current = Date.now();
-
-    const grabCurrentLiveFrame = () => {
-      if (!videoRef.current) return;
-      const elapsedSec = (Date.now() - recordingStartMsRef.current) / 1000;
-      const frame = captureVideoElementFrame(videoRef.current, elapsedSec);
-      if (frame && capturedFramesRef.current.length < 40) {
-        capturedFramesRef.current.push(frame);
-        setCapturedFrameCount(capturedFramesRef.current.length);
-      }
-    };
-
-    // Capture initial frame immediately and every 850ms during sweep
-    grabCurrentLiveFrame();
-    frameCaptureTimerRef.current = window.setInterval(grabCurrentLiveFrame, 850);
-
-    const candidateTypes = [
-      'video/webm;codecs=vp9',
-      'video/webm;codecs=vp8',
-      'video/webm',
-      'video/mp4',
-    ];
-    const supportedType = candidateTypes.find(
-      (type) => typeof MediaRecorder !== 'undefined' && MediaRecorder.isTypeSupported(type)
-    );
-
-    try {
-      const recorder = supportedType
-        ? new MediaRecorder(streamRef.current, {
-            mimeType: supportedType,
-            videoBitsPerSecond: 2_500_000,
-          })
-        : new MediaRecorder(streamRef.current);
-
-      recorder.ondataavailable = (event) => {
-        if (event.data && event.data.size > 0) {
-          chunksRef.current.push(event.data);
-        }
-      };
-
-      recorder.onstop = () => {
-        const framesSnapshot = [...capturedFramesRef.current];
-        capturedFramesRef.current = [];
-
-        const mime = recorder.mimeType || 'video/webm';
-        const blob = new Blob(chunksRef.current, { type: mime });
-        stopStream();
-
-        if (framesSnapshot.length === 0 && blob.size === 0) {
-          setErrorMsg('Inspelningen blev tom. Försök filma minst 2–3 sekunder.');
-          return;
-        }
-
-        let fallbackFile: File | undefined;
-        if (blob.size > 0) {
-          const ext = mime.includes('mp4') ? 'mp4' : 'webm';
-          fallbackFile = new File([blob], `inventering-${Date.now()}.${ext}`, {
-            type: mime,
-          });
-          if (recordedPreviewUrl) {
-            URL.revokeObjectURL(recordedPreviewUrl);
-          }
-          setRecordedPreviewUrl(URL.createObjectURL(blob));
-        }
-
-        void analyzeCapturedFrames(framesSnapshot, fallbackFile);
-      };
-
-      mediaRecorderRef.current = recorder;
-      recorder.start(500);
-      setRecording(true);
-
-      timerRef.current = window.setInterval(() => {
-        setRecordingSeconds((prev) => prev + 1);
-      }, 1000);
-    } catch {
-      // Fallback if MediaRecorder is unsupported: rely purely on live canvas frame capture
-      setRecording(true);
-      timerRef.current = window.setInterval(() => {
-        setRecordingSeconds((prev) => prev + 1);
-      }, 1000);
-    }
-  };
-
-  const stopRecordingAndProcess = () => {
-    if (videoRef.current) {
-      const elapsedSec = (Date.now() - recordingStartMsRef.current) / 1000;
-      const finalFrame = captureVideoElementFrame(videoRef.current, elapsedSec);
-      if (finalFrame && capturedFramesRef.current.length < 40) {
-        capturedFramesRef.current.push(finalFrame);
-      }
-    }
-
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
-    } else {
-      const framesSnapshot = [...capturedFramesRef.current];
-      capturedFramesRef.current = [];
-      stopStream();
-      void analyzeCapturedFrames(framesSnapshot);
     }
   };
 
@@ -350,7 +472,7 @@ export function VideoScannerPanel({
     setScanProgress({
       phase: 'preparing',
       percent: 6,
-      message: 'Skapar riktig etikettbild med streckkod och kör lokal OCR...',
+      message: 'Skapar etikett på kartongbakgrund, beskär och kör lokal OCR...',
     });
 
     try {
@@ -377,6 +499,11 @@ export function VideoScannerPanel({
     }
   };
 
+  const totalLivePackages = liveEntries.reduce(
+    (sum, e) => sum + Math.max(1, e.pkg.quantity ?? 1),
+    0
+  );
+
   return (
     <section
       aria-labelledby="scanner-heading"
@@ -386,7 +513,7 @@ export function VideoScannerPanel({
         <div>
           <div className="inline-flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-800">
             <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" aria-hidden="true" />
-            <span>100 % Lokal Streckkod + OCR · Gratis &amp; Offline · Inget API</span>
+            <span>Live Etikettbeskärning + Lokal Streckkod &amp; OCR · Utan API</span>
           </div>
           <h1
             id="scanner-heading"
@@ -395,8 +522,8 @@ export function VideoScannerPanel({
             Filma paket till Excel
           </h1>
           <p className="mt-1 text-sm text-slate-600">
-            Filma eller fota alla delivery- och removalpaket. Streckkoder, kund, typ, nummer och
-            antal läses av direkt på din enhet utan moln-API.
+            Rikta kameran mot varje etikett — rutan blinkar grönt och piper direkt när paketet har
+            lästs in, så du vet exakt när du kan gå till nästa låda.
           </p>
         </div>
 
@@ -421,7 +548,7 @@ export function VideoScannerPanel({
             }`}
           >
             <Camera className="h-4 w-4" aria-hidden="true" />
-            <span>Filma direkt</span>
+            <span>Skanna live</span>
           </button>
           <button
             type="button"
@@ -448,7 +575,7 @@ export function VideoScannerPanel({
       <div className="mt-5 grid gap-6 lg:grid-cols-12 lg:items-stretch">
         <div className="lg:col-span-8 flex flex-col">
           {inputMode === 'camera' ? (
-            <div className="relative flex min-h-[300px] sm:min-h-[380px] lg:h-full w-full flex-col items-center justify-center overflow-hidden rounded-xl border border-slate-800 bg-slate-950 text-white">
+            <div className="relative flex min-h-[360px] sm:min-h-[430px] lg:h-full w-full flex-col items-center justify-center overflow-hidden rounded-xl border border-slate-800 bg-slate-950 text-white">
               <video
                 ref={videoRef}
                 playsInline
@@ -456,32 +583,142 @@ export function VideoScannerPanel({
                 className={`h-full w-full object-cover ${cameraActive ? 'block' : 'hidden'}`}
               />
 
-              {/* Subtle reticle frame when camera is live */}
-              {cameraActive && (
+              {/* Guided Etikettram (Target Label Crop Frame) */}
+              {cameraActive && !analyzing && (
                 <div
                   aria-hidden="true"
-                  className="pointer-events-none absolute inset-6 rounded-lg border border-white/25"
-                />
+                  className={`pointer-events-none absolute inset-x-[7%] top-[12%] bottom-[24%] rounded-xl border-2 transition-all duration-200 ${
+                    flashConfirmedLabel
+                      ? 'border-emerald-400 bg-emerald-500/15 shadow-[0_0_30px_rgba(52,211,153,0.45)]'
+                      : recording
+                        ? 'border-sky-400/85'
+                        : 'border-white/45'
+                  }`}
+                >
+                  <div className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-slate-950/85 px-3 py-0.5 text-[11px] font-medium whitespace-nowrap text-slate-200">
+                    {flashConfirmedLabel ? (
+                      <span className="text-emerald-300 font-semibold">{flashConfirmedLabel}</span>
+                    ) : recording ? (
+                      liveMotionState === 'panning' ? (
+                        'Håll kameran stilla över etiketten...'
+                      ) : liveMotionState === 'reading-ocr' ? (
+                        'Läser av etikett inom ramen...'
+                      ) : (
+                        'Placera hela fraktetiketten inom ramen'
+                      )
+                    ) : (
+                      'Rikta ramen mot etiketten'
+                    )}
+                  </div>
+                </div>
               )}
 
-              {/* Live Recording Telemetry */}
-              {recording && (
-                <div className="absolute top-4 left-4 flex items-center gap-2 rounded-md bg-slate-950/85 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm">
-                  <span
-                    aria-hidden="true"
-                    className="h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse"
-                  />
-                  <span>SPELAR IN</span>
-                  <span aria-hidden="true">·</span>
-                  <span className="font-mono tabular-nums">
-                    {formatDuration(recordingSeconds)}
-                  </span>
-                  {capturedFrameCount > 0 && (
-                    <>
+              {/* Top Bar: Live Recording Status + Torch Toggle */}
+              {cameraActive && !analyzing && (
+                <div className="absolute top-3 inset-x-3 flex items-center justify-between gap-2">
+                  {recording ? (
+                    <div className="flex items-center gap-2 rounded-md bg-slate-950/85 px-3 py-1.5 text-xs font-medium text-white backdrop-blur-sm">
+                      <span
+                        aria-hidden="true"
+                        className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse"
+                      />
+                      <span>LIVE-SKANNING</span>
                       <span aria-hidden="true">·</span>
-                      <span className="text-sky-300">{capturedFrameCount} rutor</span>
-                    </>
+                      <span className="font-mono tabular-nums">
+                        {formatDuration(recordingSeconds)}
+                      </span>
+                      <span aria-hidden="true">·</span>
+                      <span className="font-semibold text-emerald-300">
+                        {totalLivePackages} {totalLivePackages === 1 ? 'paket' : 'paket'} lästa
+                      </span>
+                    </div>
+                  ) : (
+                    <div />
                   )}
+
+                  {torchSupported && (
+                    <button
+                      type="button"
+                      onClick={() => void toggleTorch()}
+                      aria-pressed={torchOn}
+                      className={`inline-flex min-h-[36px] items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium backdrop-blur-sm ${
+                        torchOn
+                          ? 'bg-amber-400 text-slate-950'
+                          : 'border border-white/20 bg-slate-950/80 text-white'
+                      }`}
+                    >
+                      <Flashlight className="h-3.5 w-3.5" aria-hidden="true" />
+                      <span>{torchOn ? 'Lampa på' : 'Lampa'}</span>
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Live Scanned Chips Tray (shows every confirmed package right in camera!) */}
+              {cameraActive && liveEntries.length > 0 && !analyzing && (
+                <div
+                  aria-live="polite"
+                  className="absolute inset-x-3 bottom-[74px] max-h-28 overflow-y-auto rounded-lg border border-emerald-500/40 bg-slate-950/90 p-2 backdrop-blur-md"
+                >
+                  <div className="flex flex-col gap-1.5">
+                    {liveEntries
+                      .slice()
+                      .reverse()
+                      .map((entry, revIdx) => {
+                        const num = liveEntries.length - revIdx;
+                        const qty = Math.max(1, entry.pkg.quantity ?? 1);
+                        return (
+                          <div
+                            key={entry.uid}
+                            className="flex items-center justify-between gap-2 rounded bg-slate-900/90 px-2.5 py-1 text-xs"
+                          >
+                            <div className="flex min-w-0 items-center gap-2">
+                              <CheckCircle2
+                                className="h-3.5 w-3.5 shrink-0 text-emerald-400"
+                                aria-hidden="true"
+                              />
+                              <span className="font-mono text-[11px] text-slate-400">
+                                #{num}
+                              </span>
+                              <span className="truncate font-semibold text-white">
+                                {entry.pkg.customer || 'Okänd kund'}
+                              </span>
+                              <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">
+                                {entry.pkg.type || 'Okänd'}
+                              </span>
+                              <span className="truncate font-mono text-emerald-300">
+                                {entry.pkg.referenceNumber || entry.pkg.barcode}
+                              </span>
+                              {qty > 1 && (
+                                <span className="rounded bg-emerald-600/30 px-1.5 py-0.5 font-mono text-[11px] font-bold text-emerald-200">
+                                  ×{qty}
+                                </span>
+                              )}
+                            </div>
+
+                            <div className="flex shrink-0 items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => handleIncrementLiveEntry(entry.uid)}
+                                title="Lägg till 1 till likadant kolli"
+                                className="inline-flex h-6 items-center gap-0.5 rounded border border-slate-700 bg-slate-800 px-1.5 text-[11px] font-semibold text-slate-200 hover:bg-slate-700"
+                              >
+                                <Plus className="h-3 w-3" aria-hidden="true" />
+                                <span>1</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveLiveEntry(entry.uid)}
+                                aria-label="Ta bort avläsning"
+                                className="inline-flex h-6 w-6 items-center justify-center rounded text-slate-400 hover:bg-red-950 hover:text-red-300"
+                              >
+                                <X className="h-3.5 w-3.5" aria-hidden="true" />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                  </div>
                 </div>
               )}
 
@@ -492,11 +729,11 @@ export function VideoScannerPanel({
                     <Video className="h-7 w-7" aria-hidden="true" />
                   </div>
                   <h2 className="mt-4 font-display text-lg font-semibold text-white">
-                    Redo att filma paket &amp; streckkoder lokalt
+                    Live-skanna paket &amp; etiketter med direktbekräftelse
                   </h2>
                   <p className="mt-1 max-w-md text-sm text-slate-300">
-                    Starta kameran och svep lugnt över varje fraktetikett. Avläsningen sker helt
-                    gratis direkt i din telefon/webbläsare utan internetkrav.
+                    Kameran beskär automatiskt in själva fraktetiketten, läser streckkod + text och
+                    visar varje avläst paket direkt på skärmen medan du skannar.
                   </p>
                   <div className="mt-5 flex flex-wrap items-center justify-center gap-3">
                     <button
@@ -536,10 +773,10 @@ export function VideoScannerPanel({
                 >
                   <Loader2 className="h-9 w-9 animate-spin text-sky-400" aria-hidden="true" />
                   <p className="mt-4 font-display text-lg font-semibold text-white">
-                    {scanProgress?.message || 'Läser av streckkoder och deliverynummer lokalt...'}
+                    {scanProgress?.message || 'Beskär etikett och läser av streckkoder...'}
                   </p>
                   <p className="mt-1 max-w-sm text-xs text-slate-300">
-                    Körs helt på din enhet (ZXing streckkodsläsare + Tesseract OCR) — ingen data skickas iväg.
+                    Körs 100 % lokalt på din enhet (ZXing WASM + Tesseract OCR).
                   </p>
                   {scanProgress && (
                     <div className="mt-4 w-full max-w-xs overflow-hidden rounded-full bg-slate-800 h-2">
@@ -554,13 +791,13 @@ export function VideoScannerPanel({
 
               {/* Camera Controls Bar */}
               {cameraActive && !analyzing && (
-                <div className="absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-between gap-3 bg-gradient-to-t from-black/85 via-black/55 to-transparent p-4">
+                <div className="absolute inset-x-0 bottom-0 flex flex-wrap items-center justify-between gap-2 bg-gradient-to-t from-black/90 via-black/70 to-transparent p-3.5">
                   <button
                     type="button"
                     onClick={stopStream}
-                    className="inline-flex min-h-[44px] items-center rounded-lg border border-white/20 bg-slate-900/80 px-4 py-2 text-xs font-medium text-white hover:bg-slate-800"
+                    className="inline-flex min-h-[44px] items-center rounded-lg border border-white/20 bg-slate-900/85 px-3.5 py-2 text-xs font-medium text-white hover:bg-slate-800"
                   >
-                    Stäng kamera
+                    Stäng
                   </button>
 
                   {!recording ? (
@@ -568,28 +805,32 @@ export function VideoScannerPanel({
                       <button
                         type="button"
                         onClick={() => void handleInstantSnapshotScan()}
-                        className="inline-flex min-h-[48px] items-center gap-2 rounded-lg border border-white/25 bg-slate-900/85 px-4 py-2.5 text-xs font-semibold text-white hover:bg-slate-800"
+                        className="inline-flex min-h-[46px] items-center gap-1.5 rounded-lg border border-white/25 bg-slate-900/85 px-3.5 py-2 text-xs font-semibold text-white hover:bg-slate-800"
                       >
                         <ScanLine className="h-4 w-4 text-sky-400" aria-hidden="true" />
                         <span>Fota 1 etikett</span>
                       </button>
                       <button
                         type="button"
-                        onClick={startRecording}
-                        className="inline-flex min-h-[48px] items-center gap-2 rounded-lg bg-sky-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-sky-500"
+                        onClick={startLiveRecordingScan}
+                        className="inline-flex min-h-[46px] items-center gap-2 rounded-lg bg-sky-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-sky-500"
                       >
                         <Play className="h-4 w-4 fill-current" aria-hidden="true" />
-                        <span>Starta filmning</span>
+                        <span>Starta live-skanning</span>
                       </button>
                     </div>
                   ) : (
                     <button
                       type="button"
-                      onClick={stopRecordingAndProcess}
-                      className="inline-flex min-h-[48px] items-center gap-2 rounded-lg bg-red-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-red-500"
+                      onClick={() => void stopRecordingAndSave()}
+                      className="inline-flex min-h-[46px] items-center gap-2 rounded-lg bg-emerald-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-emerald-500"
                     >
-                      <Square className="h-4 w-4 fill-current" aria-hidden="true" />
-                      <span>Avsluta &amp; skapa Excel</span>
+                      <Square className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
+                      <span>
+                        {totalLivePackages > 0
+                          ? `Klar — spara ${totalLivePackages} paket`
+                          : 'Avsluta & analysera'}
+                      </span>
                     </button>
                   )}
                 </div>
@@ -608,7 +849,7 @@ export function VideoScannerPanel({
                 setDragActive(false);
                 handleFilesSelected(e.dataTransfer.files);
               }}
-              className={`relative flex min-h-[300px] sm:min-h-[380px] lg:h-full w-full flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition-colors ${
+              className={`relative flex min-h-[320px] sm:min-h-[390px] lg:h-full w-full flex-col items-center justify-center rounded-xl border-2 border-dashed p-6 text-center transition-colors ${
                 dragActive
                   ? 'border-sky-600 bg-sky-50'
                   : 'border-slate-300 bg-slate-50 hover:border-slate-400'
@@ -628,10 +869,10 @@ export function VideoScannerPanel({
                 <div role="status" aria-live="polite" className="flex flex-col items-center">
                   <Loader2 className="h-9 w-9 animate-spin text-sky-600" aria-hidden="true" />
                   <p className="mt-4 font-display text-lg font-semibold text-slate-900">
-                    {scanProgress?.message || 'Analyserar uppladdat material lokalt...'}
+                    {scanProgress?.message || 'Beskär etiketter & analyserar lokalt...'}
                   </p>
                   <p className="mt-1 max-w-sm text-xs text-slate-600">
-                    Extraherar streckkoder, kund, Delivery/Removal-typ och exakta siffror direkt i webbläsaren.
+                    Isolerar fraktetiketter från bakgrunden och läser streckkoder + text direkt på enheten.
                   </p>
                   {scanProgress && (
                     <div className="mt-4 w-64 overflow-hidden rounded-full bg-slate-200 h-2">
@@ -648,11 +889,11 @@ export function VideoScannerPanel({
                     <FileVideo className="h-7 w-7" aria-hidden="true" />
                   </div>
                   <h2 className="mt-4 font-display text-lg font-semibold text-slate-900">
-                    Släpp video eller paketbilder här
+                    Släpp video eller skarpa etikettfoton här
                   </h2>
                   <p className="mt-1 max-w-md text-sm text-slate-600">
-                    Stöder MP4, MOV, WebM samt JPG/PNG-foton av fraktetiketter. All analys sker
-                    lokalt på din enhet utan storleks- eller API-gräns.
+                    Stöder flera foton samtidigt (t.ex. 3 foton på 3 etiketter) samt MP4/MOV/WebM-video.
+                    Etiketten beskärs ut automatiskt före avläsning.
                   </p>
 
                   {selectedFiles.length > 0 && (
@@ -677,7 +918,7 @@ export function VideoScannerPanel({
                       className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-800 hover:bg-slate-50"
                     >
                       <Upload className="h-4 w-4" aria-hidden="true" />
-                      <span>Välj fil från enhet</span>
+                      <span>Välj foton / video</span>
                     </button>
 
                     {selectedFiles.length > 0 ? (
@@ -723,18 +964,18 @@ export function VideoScannerPanel({
                 Inställningar för avläsning
               </h2>
               <p className="mt-1 text-xs text-slate-600">
-                Styr hur nya filmningar och foton slås ihop med din nuvarande Excel-lista.
+                Styr hur nya skanningar slås ihop med din nuvarande Excel-lista.
               </p>
             </div>
 
             <div className="rounded-lg border border-emerald-200 bg-emerald-50/70 p-3 text-xs text-emerald-950">
               <p className="font-semibold text-emerald-900">
-                Lokal motor aktiv (0 kr / utan API)
+                Smart etikettbeskärning &amp; live-låsning
               </p>
               <p className="mt-1 text-emerald-800 leading-relaxed">
-                Kombinerar <strong>ZXing WASM</strong> (1D/2D-streckkoder &amp; QR) med{' '}
-                <strong>Tesseract LSTM OCR</strong> (svenska + engelska) direkt på enheten. Fungerar
-                helt offline i både webbläsare och Android-APK.
+                Kameran isolerar den vita etiketten i full upplösning, skärper texten och ger{' '}
+                <strong>grön blinkning + pip</strong> för varje avläst paket innan du flyttar
+                mobilen till nästa låda.
               </p>
             </div>
 
@@ -768,8 +1009,8 @@ export function VideoScannerPanel({
               </div>
               <p className="text-xs text-slate-500">
                 {appendMode
-                  ? 'Likadana deliverynummer från flera klipp räknas ihop automatiskt.'
-                  : 'Nuvarande lista sparas i historiken och ersätts av nästa filmning.'}
+                  ? 'Likadana nummer räknas ihop automatiskt i nuvarande lista.'
+                  : 'Nuvarande lista sparas i historiken och ersätts av nästa skanning.'}
               </p>
             </div>
 
@@ -785,19 +1026,19 @@ export function VideoScannerPanel({
                 type="text"
                 value={hint}
                 onChange={(e) => setHint(e.target.value)}
-                placeholder="T.ex. Microsoft Delivery (används om kund saknas på etikett)"
+                placeholder="T.ex. Microsoft Delivery (om kund saknas på etikett)"
                 className="mt-1.5 w-full rounded-lg border border-slate-300 bg-white px-3 py-2.5 text-sm text-slate-900 placeholder:text-slate-400 focus:border-sky-600 focus:outline-none"
               />
             </div>
 
             <div className="border-t border-slate-200 pt-4">
               <h3 className="text-xs font-semibold text-slate-800">
-                Tips för 100 % träffsäkerhet
+                Så skannar du 3+ etiketter i rad på mobilen
               </h3>
               <ul className="mt-2 space-y-1.5 text-xs text-slate-600">
-                <li>1. Håll varje etikett skarp i 1–2 sekunder (eller tryck Fota 1 etikett).</li>
-                <li>2. Se till att både kundnamn (t.ex. Microsoft) och Del/Rem-numret syns.</li>
-                <li>3. Två separata kolli med samma nummer räknas ihop automatiskt till Antal 2.</li>
+                <li>1. Håll etikett 1 inom ramen (ca 15–25 cm avstånd) tills ramen blinkar grönt.</li>
+                <li>2. Flytta sedan till etikett 2 och 3 — varje paket dyker upp live nederst i kameran.</li>
+                <li>3. Tryck <strong>Klar — spara X paket</strong> så hamnar alla direkt i Excel!</li>
               </ul>
             </div>
           </div>
